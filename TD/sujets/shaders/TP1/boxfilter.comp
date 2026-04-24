@@ -1,0 +1,8 @@
+// TODO : Ecrire le compute shader de filtre boite depuis zero.
+//
+// Ce shader doit :
+//   - Declarer les bindings GLSL necessaires (buffer d'entree binding 0, buffer de sortie binding 1)
+//   - Calculer pour chaque element i : out[i] = (in[i-1] + in[i] + in[i+1]) / 3.0
+//
+// Il sera utilise pour les 3 passes : seuls les descriptor sets changeront entre les passes,
+// pas le shader lui-meme.
