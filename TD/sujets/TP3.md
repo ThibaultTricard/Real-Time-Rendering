@@ -21,7 +21,7 @@ Le chargeur `loadModel` fourni dans `utils/ObjLoader.hpp` accepte plusieurs surc
 std::vector<float>    positions;
 std::vector<uint32_t> positionIndices;
 
-loadModel(root + "models/LTE.obj", root + "models/",
+loadModel(root + "models/fandisk.obj", root + "models/",
           positions, positionIndices);
 ```
 
@@ -92,15 +92,15 @@ outColor = vec4(vec3(diffuse + ambient), 1.0);
 ```bash
 cd realtimerendering-students
 cmake -B build
-cmake --build build --target TP3_exo1
-./build/TP3_exo1
+cmake --build build --target TP3_exercice1
+./build/TP3_exercice1
 ```
 
 ---
 
 ## Exercice 1 — Normales par face
 
-L'objectif est d'afficher le modèle `LTE.obj` éclairé avec des **normales calculées par triangle** (une normale par face).
+L'objectif est d'afficher le modèle `fandisk.obj` éclairé avec des **normales calculées par triangle** (une normale par face).
 
 ### Étapes
 

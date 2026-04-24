@@ -53,13 +53,13 @@ La **swapchain** est une file d'images tampons entre le GPU et l'écran. Chaque 
 mkdir build && cd build
 cmake ..
 
-make TP2_exo1
-./TP2_exo1
+make TP2_exercice1
+./TP2_exercice1
 ```
 
 ---
 
-## Exercice 1 : Premier triangle (`src/TP2/exo1.cpp`)
+## Exercice 1 : Premier triangle (`src/TP2/exercice1.cpp`)
 
 
 ### Objectif
@@ -128,7 +128,7 @@ graphicPipeline.draw(cmdBuffer, 3);  // 3 sommets = 1 triangle
 
 ---
 
-## Exercice 2 : Vertex Pulling (`src/TP2/exo2.cpp`)
+## Exercice 2 : Vertex Pulling (`src/TP2/exercice2.cpp`)
 
 ### Objectif
 
@@ -169,11 +169,11 @@ Le même triangle RGB qu'en exercice 1 (voir ci-dessus), mais avec les données 
 
 ### Pour aller plus loin
 
-Modifiez les vecteurs `position` et `color` dans `exo2.cpp` pour changer la forme ou les couleurs du triangle. Essayez d'afficher deux triangles en passant 6 sommets à `draw()`.
+Modifiez les vecteurs `position` et `color` dans `exercice2.cpp` pour changer la forme ou les couleurs du triangle. Essayez d'afficher deux triangles en passant 6 sommets à `draw()`.
 
 ---
 
-## Exercice 3 : Cube RGB en 3D — Uniform Buffer (`src/TP2/exo3.cpp`)
+## Exercice 3 : Cube RGB en 3D — Uniform Buffer (`src/TP2/exercice3.cpp`)
 
 ### Objectif
 
@@ -254,7 +254,7 @@ La géométrie du cube (8 sommets, 36 indices) est fournie. Complétez les 6 TOD
 
 ---
 
-## Exercice 4 : Animation — Push Constants (`src/TP2/exo4.cpp`)
+## Exercice 4 : Animation — Push Constants (`src/TP2/exercice4.cpp`)
 
 ### Objectif
 

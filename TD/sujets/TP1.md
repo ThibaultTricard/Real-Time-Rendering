@@ -58,13 +58,13 @@ mkdir build && cd build
 cmake ..
 
 # Compiler et lancer un exercice
-make TP1_exo1
-./TP1_exo1
+make TP1_exercice1
+./TP1_exercice1
 ```
 
 ---
 
-## Exercice 1 : Addition de vecteurs (`src/TP1/exo1.cpp`)
+## Exercice 1 : Addition de vecteurs (`src/TP1/exercice1.cpp`)
 
 ### Objectif
 
@@ -74,7 +74,7 @@ Calculer sur le GPU `C[i] = A[i] + B[i]` pour `i` allant de `0` à `size-1`, pui
 
 Ouvrez `shaders/TP1/addition.comp`. Les bindings sont déjà déclarés. Complétez la fonction `main()` pour lire `_a[i]` et `_b[i]` et écrire le résultat dans `_c[i]`.
 
-### Ce que vous devez implémenter dans `exo1.cpp`
+### Ce que vous devez implémenter dans `exercice1.cpp`
 
 Le fichier contient 10 TODOs numérotés. Suivez-les dans l'ordre :
 
@@ -100,7 +100,7 @@ C[999]=2997 (attendu 2997)
 
 ---
 
-## Exercice 2 : Opérations enchaînées (`src/TP1/exo2.cpp`)
+## Exercice 2 : Opérations enchaînées (`src/TP1/exercice2.cpp`)
 
 ### Objectif
 
@@ -163,7 +163,7 @@ Succes ! D est correct.
 
 ---
 
-## Exercice 3 : Filtre boîte itératif (`src/TP1/exo3.cpp`)
+## Exercice 3 : Filtre boîte itératif (`src/TP1/exercice3.cpp`)
 
 ### Objectif
 
@@ -197,7 +197,7 @@ Ouvrez `shaders/TP1/boxfilter.comp` et écrivez le shader **depuis zéro** : ver
 
 ### Ce que vous devez implémenter
 
-Aucun code GPU n'est fourni dans `exo3.cpp`. Implémentez les 6 étapes en vous appuyant sur ce que vous avez appris dans les exercices précédents :
+Aucun code GPU n'est fourni dans `exercice3.cpp`. Implémentez les 6 étapes en vous appuyant sur ce que vous avez appris dans les exercices précédents :
 
 1. **Buffers GPU** — créez `ABuffer` (depuis le vecteur `A`), `BBuffer`, `CBuffer` et `DBuffer`. `ABuffer` peut être un buffer classique. `BBuffer`, `CBuffer` et `DBuffer` doivent être accessibles depuis le CPU pour le readback : utilisez les flags `eCreateDedicatedMemory | eCreateHostAccessSequentialWrite`.
 2. **DescriptorSetLayout et DescriptorPool** — layout avec 2 bindings storage buffer, pool dimensionné pour 3 sets.
