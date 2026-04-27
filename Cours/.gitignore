@@ -1,0 +1,21 @@
+# Quarto
+.quarto/
+_book/
+_freeze/
+_cache/
+*_files/
+
+# Sorties générées
+*.html
+*.pdf
+*.tex
+cours.tex
+
+# LaTeX intermédiaire
+*.aux
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz

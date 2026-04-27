@@ -1,0 +1,62 @@
+---
+title: "Real Time Rendering"
+subtitle: "placeholder"
+author: "Thibault Tricard"
+date: "2026"
+lang: fr
+bibliography: references.bib
+header-includes: |
+  \newcommand{\rad}{L}
+  \newcommand{\brdf}{f_r}
+  \newcommand{\pos}{x}
+  \newcommand{\dir}{\omega}
+format:
+  pdf:
+    documentclass: report
+    classoption: [a4paper, 12pt]
+    toc: true
+    number-sections: true
+    colorlinks: true
+    link-citations: true
+  html:
+    css: styles.css
+    toc: false
+---
+
+::: {.content-visible when-format="html"}
+
+::: cover-page
+
+::: cover-top
+# Real Time Rendering
+
+#### Du pipeline graphique aux techniques modernes
+:::
+
+::: cover-image
+![](figures/cover.png)
+:::
+
+::: cover-bottom
+**Thibault Tricard**
+
+2026
+:::
+
+:::
+
+:::
+
+```{=html}
+<span style="display:none">
+$$
+\newcommand{\rad}{L}
+\newcommand{\brdf}{f_r}
+\newcommand{\pos}{x}
+\newcommand{\dir}{\omega}
+$$
+</span>
+```
+
+{{< include chapitres/chapitre1.qmd >}}
+{{< include chapitres/chapitre2.qmd >}}

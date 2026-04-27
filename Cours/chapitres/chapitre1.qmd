@@ -1,0 +1,139 @@
+# Rendering
+
+## Introduction
+
+Avant de nous plonger dans le rendu temps réel, nous devons poser le problème du rendu.
+En informatique graphique, rendre une scène est l'action par laquelle on transforme une scène 3D en une image interprétable. C'est l'équivalent de prendre une photo dans le monde réel.
+
+Pour comprendre ce qui se passe lorsque l'on prend une photo, regardons le schéma suivant :
+
+![Formation d'une image](figures/schema-lumiere1.png){width=50%}
+
+Il contient une source de lumière, des objets et une caméra, et montre comment la lumière émise depuis la source de lumière (rayons incidents) rebondit sur les objets en direction de la caméra (rayons réfléchis).
+Ce que mesure la caméra, c'est la quantité de lumière qui arrive dans ses capteurs.
+C'est l'activation des capteurs de la caméra qui est interprétée pour créer l'image finale.
+
+En conséquence, si on veut créer une image à partir d'une scène virtuelle, il nous faut être capables de simuler les chemins de la lumière depuis la source de lumière jusqu'à un capteur virtuel.
+
+Attention, le problème est plus complexe qu'il n'y paraît :
+
+- Le nombre de rebonds entre la lumière et la caméra peut être infini.
+- Un rayon de lumière qui arrive en un point ne rebondit pas, il est redistribué dans toutes les directions.
+
+Les deux phénomènes sont visibles dans le schéma suivant :
+
+![Rebonds multiples et distribution](figures/lumiereIndirecte.png){width=50%}
+
+Ici on observe deux choses importantes :
+
+- Quand la lumière interagit avec un objet, elle ne rebondit pas, elle est distribuée. Ce qui implique que si on suit un seul chemin, l'énergie lumineuse qu'il porte diminuera avec chaque rebond. Ainsi, nous pourrons arrêter de simuler les rayons dont l'intensité sera trop faible.
+- Quand la lumière est redistribuée par un objet, les matériaux qui composent l'objet ont un impact sur la redistribution de la lumière (ex. : un objet vert redistribuera plus la lumière verte que les autres).
+
+C'est quelque chose qu'on peut observer dans cette image :
+
+![Cornell Box](figures/Cornell_Box.png){width=50%}
+
+Il s'agit de la Cornell Box, une scène test très utilisée en rendu.
+On peut y voir nos deux observations précédentes :
+
+- Le vert et le rouge des murs latéraux teintent les parallélépipèdes au centre de la scène.
+- Comme ces couleurs proviennent de lumière qui a déjà été redistribuée par un autre objet, le rouge et le vert qu'on peut voir sur les parallélépipèdes sont moins intenses que ceux des murs.
+
+### Inverser le problème
+
+Simuler la lumière depuis la source pose un problème pratique : une source émet des rayons dans toutes les directions, et la grande majorité d'entre eux n'atteindra jamais le capteur. Les calculer tous serait un gaspillage considérable.
+
+La solution est d'inverser le problème. Plutôt que de partir de la source, on part du capteur : pour chaque rayon qui arrive au capteur, on remonte le chemin que la lumière aurait emprunté pour l'atteindre.
+
+Cette inversion est valide car la lumière est réversible : un chemin source → objet → capteur est physiquement équivalent au même chemin parcouru en sens inverse.
+
+L'avantage est immédiat : on ne simule que les chemins qui contribuent effectivement à l'image finale.
+
+## Un peu de formalisme
+
+### Notre capteur
+
+On modélise le capteur comme un plan 2D placé entre la position de la caméra et la scène. Ce plan est paramétré par des coordonnées $(u, v) \in [0, 1]^2$.
+
+Chaque point $(u, v)$ de ce plan correspond à une direction $\omega(u, v)$ depuis la caméra vers la scène. C'est cette correspondance qui permet de former une image cohérente : chaque point du capteur mesure la lumière arrivant depuis une direction précise.
+
+Ce que l'on cherche à calculer, c'est donc la quantité de lumière arrivant au capteur depuis chaque direction $\omega(u, v)$. En physique, cette grandeur s'appelle la **radiance** et se note $\rad$.
+
+Pour former une image, on discrétise ce plan en une grille de $W \times H$ pixels, avec $w \in \{0, \ldots, W-1\}$ et $h \in \{0, \ldots, H-1\}$. La valeur de chaque pixel est la radiance intégrée sur la région du plan image qu'il couvre :
+
+$$I(w, h) = \int_{\frac{h}{H}}^{\frac{h+1}{H}} \int_{\frac{w}{W}}^{\frac{w+1}{W}} \rad\!\left(\omega(u, v)\right)\, du\, dv$$
+
+### Trouver les intersections
+
+Pour calculer $\rad(\dir(u,v))$, il faut d'abord savoir quel point de la scène est visible depuis le capteur dans la direction $\dir(u,v)$.
+
+On modélise cela avec un **rayon**, défini par une origine $\mathbf{o}$ et une direction $\mathbf{d}$, paramétré par $t \geq 0$ :
+
+$$r(t) = \mathbf{o} + t\,\mathbf{d}$$
+
+Le problème est de trouver la première intersection du rayon avec la scène, c'est-à-dire :
+
+$$t^* = \min \{ t > 0 \mid r(t) \in \mathcal{S} \}$$
+
+où $\mathcal{S}$ désigne l'ensemble des surfaces de la scène. C'est l'intersection la plus proche — celle que le capteur voit effectivement.
+On retrouve la postion $x$ de l'intersection rayon scene en
+
+### L'équation du rendu
+
+Une fois le point d'intersection $\pos$ connu, il faut calculer la radiance $\rad(\pos, \dir_o)$ quittant ce point dans la direction $\dir_o$ ($-\mathbf{d}$) vers le capteur. C'est exactement ce que décrit l'équation du rendu, formulée par Kajiya en 1986 [@kajiya1986] :
+
+$$\rad(\pos, \dir_o) = \rad_e(\pos, \dir_o) + \int_{\Omega^+} \brdf(\pos, \dir_i, \dir_o)\, \rad(\pos, \dir_i)\, \cos\theta_i\, d\dir_i$$
+
+On peut lire cette équation terme par terme :
+
+- $\rad_e(\pos, \dir_o)$ : la radiance émise directement par le point $\pos$ (nul si l'objet n'est pas une source de lumière).
+- $\int_{\Omega^+} \ldots\, d\dir_i$ : la somme de toutes les contributions lumineuses venant de chaque direction $\dir_i$ de l'hémisphère supérieur $\Omega^+$ autour de $\pos$. La surface en $\pos$ divise la sphère des directions en deux hémisphères égaux : $\Omega^+$, du côté extérieur, et $\Omega^-$, du côté intérieur du matériau. On n'intègre que sur $\Omega^+$, car c'est de là que provient la lumière dans le cas d'un objet opaque.
+- $\brdf(\pos, \dir_i, \dir_o)$ : une fonction qui définit quelle proportion de la lumière arrivant depuis la direction $\dir_i$ est redistribuée dans la direction $\dir_o$. Elle dépend du matériau de l'objet au point $\pos$.
+- $\cos\theta_i$ : un facteur géométrique qui traduit le fait qu'un rayon rasant contribue moins qu'un rayon perpendiculaire à la surface.
+
+Attention, cette équation est récursive : calculer $\rad(\pos, \dir_o)$ nécessite de connaître $\rad(\pos, \dir_i)$ pour toutes les directions $\dir_i$, ce qui implique de résoudre le même problème en d'autres points de la scène. C'est ce qui rend le rendu coûteux à calculer.
+
+### Equation finale
+
+En combinant toutes les équations précédentes, la valeur d'un pixel $(w, h)$ s'écrit :
+
+$$I(w, h) = \int_{\frac{h}{H}}^{\frac{h+1}{H}} \int_{\frac{w}{W}}^{\frac{w+1}{W}} \left[ \rad_e(\pos^*, \dir_o) + \int_{\Omega^+} \brdf(\pos^*, \dir_i, \dir_o)\, \rad(\pos^*, \dir_i)\, \cos\theta_i\, d\dir_i \right] du\, dv$$
+
+où $\pos^* = r(t^*)$ est le point de la scène visible dans la direction $\dir_o = \dir(u,v)$.
+
+Le problème de cette formulation est que $\rad(\pos^*, \dir_i)$ est lui-même défini par la même équation, appliquée récursivement en un autre point de la scène. On a donc :
+
+- Une double intégrale sur le plan image pour chaque pixel.
+- Pour chaque direction $(u,v)$, une intégrale sur l'hémisphère $\Omega^+$.
+- Pour chaque direction $\dir_i$ de cet hémisphère, une nouvelle intégrale sur un autre hémisphère, et ainsi de suite à l'infini.
+
+En pratique, le nombre de rebonds est borné et les intégrales sont estimées par échantillonnage, mais même ainsi, produire une image de qualité nécessite de l'ordre de quelques secondes à plusieurs heures de calcul.
+
+C'est fondamentalement incompatible avec le temps réel, qui impose de produire une image complète en moins de 16 ms (60 images par seconde), à des résolutions standards de 1920×1080 (2 073 600 pixels) à 3840×2160 (8 294 400 pixels). Le rendu temps réel repose donc sur des approximations et des algorithmes spécifiques qui permettent d'évaluer cette équation de manière suffisamment rapide — au prix de certains compromis sur la qualité.
+
+Dans ce cours nous allons tenter de nous rapprocher le plus possible d'un rendu réaliste tout en minimisant les cout de calculs.
+Celà passera par de la parrallélisation via la carte graphique et par beaucoup des racourci mathématique et algorithmique. 
+
+## Notations {.unnumbered}
+
+| Notation | Description |
+|---|---|
+| $\rad(\pos, \dir)$ | Radiance en un point $\pos$ dans la direction $\dir$ |
+| $\rad_e(\pos, \dir)$ | Radiance émise par le point $\pos$ |
+| $\brdf(\pos, \dir_i, \dir_o)$ | Proportion de lumière redistribuée de $\dir_i$ vers $\dir_o$ en $\pos$ |
+| $\pos$ | Point dans la scène |
+| $\dir$, $\dir_i$, $\dir_o$ | Direction, direction incidente, direction sortante |
+| $\Omega^+$ | Hémisphère supérieur autour d'un point (directions au-dessus de la surface) |
+| $\Omega^-$ | Hémisphère inférieur autour d'un point (directions au-dessus de la surface) |
+| $\theta_i$ | Angle entre $\dir_i$ et la normale à la surface |
+| $r(t) = \mathbf{o} + t\,\mathbf{d}$ | Rayon d'origine $\mathbf{o}$ et de direction $\mathbf{d}$ |
+| $t^*$ | Paramètre de la première intersection du rayon avec la scène |
+| $\mathcal{S}$ | Ensemble des surfaces de la scène |
+| $I(w, h)$ | Valeur du pixel $(w, h)$ de l'image |
+| $W \times H$ | Résolution de l'image |
+| $(u, v) \in [0,1]^2$ | Coordonnées du plan image |
+| $\dir(u, v)$ | Direction associée au point $(u, v)$ du plan image |
+
+## Références {.unnumbered}
+
+

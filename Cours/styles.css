@@ -1,0 +1,51 @@
+p {
+  text-align: justify;
+}
+
+/* Cover page layout */
+.cover-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 100vh;
+  text-align: center;
+  padding: 5rem 3rem;
+  page-break-after: always;
+  border-bottom: 1px solid #ddd;
+  margin-bottom: 4rem;
+}
+
+.cover-top h1 {
+  font-size: 3.5rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  margin-bottom: 1rem;
+  line-height: 1.1;
+}
+
+.cover-top h4 {
+  font-size: 1.3rem;
+  font-weight: 400;
+  font-style: italic;
+  color: #555;
+  margin-top: 0.5rem;
+}
+
+.cover-image img {
+  max-width: 60%;
+  max-height: 40vh;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.cover-bottom {
+  font-size: 1.1rem;
+  color: #444;
+  line-height: 2;
+}
+
+.cover-bottom strong {
+  font-size: 1.2rem;
+  display: block;
+}
