@@ -134,6 +134,4 @@ Celà passera par de la parrallélisation via la carte graphique et par beaucoup
 | $(u, v) \in [0,1]^2$ | Coordonnées du plan image |
 | $\dir(u, v)$ | Direction associée au point $(u, v)$ du plan image |
 
-## Références {.unnumbered}
-
 

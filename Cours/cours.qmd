@@ -60,3 +60,6 @@ $$
 
 {{< include chapitres/chapitre1.qmd >}}
 {{< include chapitres/chapitre2.qmd >}}
+{{< include chapitres/chapitre3.qmd >}}
+
+## Références {.unnumbered}

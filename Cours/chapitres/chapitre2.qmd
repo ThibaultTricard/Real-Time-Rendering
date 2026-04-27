@@ -1,188 +1,257 @@
-# Dialogue avec mon GPU
+# Scene
 
 ## Introduction
 
-Le chapitre précédent a montré que produire une image correcte nécessite d'évaluer une intégrale récursive pour chaque pixel, à raison de plusieurs millions de pixels par image. Pour faire cela en temps réel, il faut du matériel spécialisé : le **GPU** (Graphics Processing Unit).
+Le chapitre précédent a posé le problème du rendu de manière formelle : calculer la radiance $\rad(\pos, \dir_o)$ en chaque point visible depuis le capteur. Pour résoudre ce problème, il faut d'abord définir ce qu'on cherche à rendre : la **scène**.
 
-Contrairement au CPU, qui dispose de quelques cœurs puissants optimisés pour exécuter des tâches séquentielles complexes, le GPU est composé de milliers de petits cœurs conçus pour exécuter la même opération sur de nombreuses données en parallèle. C'est exactement ce dont on a besoin : chaque pixel peut être calculé indépendamment des autres.
+Une scène est un ensemble d'éléments qui décrivent le monde virtuel à partir duquel on calcule une image :
 
-En pratique, le CPU prépare les données (géométrie, textures, paramètres) et envoie des commandes au GPU, qui exécute le calcul de l'image.
+- Des **sources de lumière**, qui émettent de l'énergie lumineuse.
+- Des **objets 3D**, composés de géométrie.
+- Une **caméra**, qui définit le point de vue (traitée dans le chapitre suivant).
 
-## Les APIs graphiques
+Ce chapitre détaille comment représenter les objets et les sources de lumière de façon à pouvoir les traiter efficacement sur GPU.
 
-Pour envoyer des commandes au GPU, on passe par une **API graphique** — une interface logicielle qui abstrait le matériel. Plusieurs APIs coexistent, chacune avec un positionnement différent :
 
-| API | Plateforme | Niveau d'abstraction |
-|---|---|---|
-| OpenGL | Multi-plateforme | Haut (historique) |
-| Vulkan | Multi-plateforme | Bas |
-| DirectX 12 | Windows / Xbox | Bas |
-| Metal | Apple | Bas |
-| WebGPU | Navigateur | Moyen |
+## Sources de lumière
 
-Les APIs dites de "bas niveau" (Vulkan, DirectX 12, Metal) donnent un contrôle explicite sur la mémoire, la synchronisation et l'exécution sur le GPU. Elles sont plus complexes à utiliser mais permettent d'extraire davantage de performances.
+Dans l'équation du rendu, la radiance $\rad(\pos, \dir_i)$ arrivant en un point peut avoir deux origines :
+- La lumière directement émise par une surface lumineuse ($\rad_e \neq 0$).
+- La lumière réfléchie par d'autres surfaces.
 
-Dans ce cours, nous utiliserons **Vulkan**, qui est l'API moderne multi-plateforme de référence.
-Vulkan étant trés verbeux nous utiliseron la Librairie Lavacake qui ecapsule Vulkan tout en laissant les concept clé apparant
+En rendu temps réel, la lumière est rarement représentée comme une surface émettrice explicite. On utilise à la place des **sources de lumière idéalisées**, qui approximent les sources réelles tout en restant faciles à évaluer.
 
-## Programmation GPU et Shaders
+### Lumière directionnelle
 
-Les cœurs du GPU exécutent des programmes appelés **shaders**. Un shader est un programme court, écrit dans un langage dédié, qui s'exécute en parallèle sur de nombreux éléments simultanément — sommets, fragments, ou éléments de calcul arbitraires.
+Une **lumière directionnelle** modélise une source infiniment lointaine — typiquement le soleil. Elle est caractérisée par :
 
-### GLSL
+- Une **direction** $\mathbf{d} \in \mathbb{R}^3$ (vecteur unitaire, de la lumière vers la scène).
+- Un **éclairement** $\mathbf{E} \in \mathbb{R}^3$ (irradiance, en W·m⁻²) : la puissance lumineuse reçue par unité de surface, pour chaque composante RGB.
 
-Le langage utilisé dans ce cours est le **GLSL** (OpenGL Shading Language). C'est un langage à syntaxe proche du C, avec des types et des opérations adaptés au calcul vectoriel et matriciel natif.
+Comme la source est à l'infini, tous les points de la scène reçoivent la lumière dans la même direction $\mathbf{d}$, avec la même intensité $\mathbf{E}$.
 
-Un shader GLSL se compose d'une fonction `main()` et déclare explicitement ses entrées, ses sorties et les ressources auxquelles il accède. Voici la structure minimale d'un fragment shader qui produit une couleur rouge :
+### Point light
 
-```glsl
-#version 450
+Un **point light** modélise une source ponctuelle émettant de la lumière dans toutes les directions — une ampoule, par exemple. Il est caractérisé par :
 
-layout(location = 0) out vec4 outColor;
+- Une **position** $\mathbf{p} \in \mathbb{R}^3$.
+- Une **intensité rayonnante** $\mathbf{E} \in \mathbb{R}^3$ (en W·sr⁻¹) : la puissance émise par stéradian, pour chaque composante RGB.
 
-void main() {
-    outColor = vec4(1.0, 0.0, 0.0, 1.0);
-}
-```
+La direction depuis le point $\pos$ vers la source est $\mathbf{d} = \frac{\mathbf{p} - \pos}{\|\mathbf{p} - \pos\|}$.
 
-- `#version 450` : déclare la version de GLSL utilisée.
-- `layout(location = 0) out vec4 outColor` : déclare une sortie — ici la couleur du fragment, un vecteur de 4 composantes (R, G, B, A).
-- `main()` : point d'entrée du shader, exécuté pour chaque fragment.
+L'éclairement reçu **décroît avec le carré de la distance** (loi en $1/r^2$, issue de la conservation de l'énergie sur une sphère) :
 
-Les shaders sont compilés en **SPIR-V** — un format binaire intermédiaire — avant d'être soumis à Vulkan. Cette compilation peut se faire à l'avance ou au lancement de l'application.
+$$\mathbf{E}_{\text{eff}}(\pos) = \frac{\mathbf{E}}{\|\mathbf{p} - \pos\|^2} \quad \text{(W·m}^{-2}\text{)}$$
 
-### Algèbre linéaire en faible dimension
+### Spot light
 
-Le GPU dispose d'unités matérielles dédiées aux opérations d'algèbre linéaire en petite dimension. Les opérations sur des vecteurs de 2, 3 ou 4 composantes et des matrices jusqu'à $4 \times 4$ sont exécutées nativement, en une poignée de cycles.
+Un **spot light** est un point light dont le cône d'émission est limité — comme un projecteur. Il ajoute deux paramètres au point light :
 
-GLSL expose ces types directement : `vec2`, `vec3`, `vec4`, `mat3`, `mat4`. Les opérations associées — produit scalaire, produit vectoriel, normalisation, multiplication matrice-vecteur — sont des instructions de première classe pour le GPU :
+- Une **direction** $\mathbf{s}$ (axe du cône).
+- Un **angle de coupure** $\phi_{\text{outer}}$ et un **angle de pénombre** $\phi_{\text{inner}}$.
 
-```glsl
-vec3 n = normalize(normal);       // normalisation
-float d = dot(n, lightDir);       // produit scalaire
-vec4 p = transform * vec4(pos, 1.0); // multiplication matrice-vecteur
-```
+La lumière est à pleine intensité dans le cône intérieur (angle $< \phi_{\text{inner}}$), s'atténue progressivement jusqu'à l'angle $\phi_{\text{outer}}$, puis s'annule.
 
-C'est cette spécialisation qui rend le GPU particulièrement efficace pour le rendu : transformer des sommets, calculer des éclairages, projeter de la géométrie sont toutes des opérations qui se réduisent à de l'algèbre linéaire en dimension 3 ou 4.
+L'atténuation angulaire est calculée à partir de $\cos\theta = \mathbf{d} \cdot \mathbf{s}$ :
 
-## Concepts clés
+$$a(\theta) = \begin{cases} 1 & \text{si } \theta < \phi_{\text{inner}} \\ 0 & \text{si } \theta > \phi_{\text{outer}} \\ \text{interpolation douce entre 0 et 1} & \text{sinon} \end{cases}$$
 
-### Commands et Command Buffers
+La contribution finale est celle du point light, multipliée par $a(\theta)$.
 
-Dans les APIs modernes, on ne peut pas envoyer des instructions au GPU une par une en temps réel. À la place, on **enregistre** une séquence de commandes dans un **command buffer**, puis on soumet ce buffer au GPU en une seule fois.
+## Objets 3D
 
-L'enregistrement se déroule en trois étapes :
+### Définition d'une surface
 
-1. On ouvre le command buffer.
-2. On enregistre les commandes (dessiner, copier de la mémoire, changer d'état…).
-3. On ferme le command buffer, puis on le soumet à une queue.
+Dans le chapitre précédent, on a noté $\mathcal{S}$ l'ensemble des surfaces de la scène, sans préciser ce qu'est une surface. On comble maintenant ce manque.
 
-Ce modèle permet au driver de valider et d'optimiser les commandes à l'avance, et de les réutiliser d'une frame à l'autre si la scène n'a pas changé.
+**Définition** — Une **surface** $\mathcal{S} \subset \mathbb{R}^3$ est un ensemble continu qui sépare $\mathbb{R}^3$ en deux régions disjointes : l'**intérieur** et l'**extérieur**.
 
-### Queues
+C'est cet ensemble $\mathcal{S}$ qui apparaît dans le test d'intersection du chapitre précédent : $t^* = \min\{t > 0 \mid r(t) \in \mathcal{S}\}$.
 
-Une **queue** est le canal par lequel on soumet des command buffers au GPU. Il en existe plusieurs types selon le travail à effectuer :
+Pour calculer $t^*$, il faut une représentation concrète de $\mathcal{S}$. Plusieurs approches existent :
 
-- **Queue graphique** : rendu, rasterisation.
-- **Queue de calcul** : calcul général sur GPU (compute shaders).
-- **Queue de transfert** : copie de données entre CPU et GPU.
+- **Surfaces implicites** : on définit $\mathcal{S} = \{\pos \in \mathbb{R}^3 \mid f(\pos) = 0\}$ pour une fonction $f : \mathbb{R}^3 \to \mathbb{R}$. L'intérieur correspond à $f(\pos) < 0$ et l'extérieur à $f(\pos) > 0$. Simple à définir pour des formes géométriques basiques (sphère, plan), mais résoudre $f(r(t)) = 0$ n'a généralement pas de solution analytique pour des formes complexes.
 
-Le GPU traite les command buffers soumis à une queue dans l'ordre de soumission, mais plusieurs queues peuvent s'exécuter en parallèle.
+- **Surfaces paramétriques** : on définit $\mathcal{S}$ par une application $\phi : \mathbb{R}^2 \to \mathbb{R}^3$, comme les surfaces de Bézier ou les NURBS utilisées en CAO. Elles représentent des formes lisses avec peu de données, mais le calcul de l'intersection avec un rayon requiert des méthodes numériques itératives, trop coûteuses pour le temps réel.
 
-Attention, les commandes à l'intérieur d'un même command buffer peuvent être pipelinées et exécutées hors-ordre par le GPU. Cependant certaine opération de synchronisation (barrière) nous permettent de garantire l'ordre entre des commande.
+- **Maillages triangulaires** : on approche $\mathcal{S}$ par un ensemble fini de triangles. L'intersection rayon–triangle a une solution analytique simple et rapide à calculer. En revanche, la représentation est intrinsèquement approximative : une surface courbe nécessite un grand nombre de triangles pour être fidèlement approchée, au prix d'une mémoire et d'un temps de calcul proportionnels.
 
-### Synchronisation
+### Maillages triangulaires
 
-Soumettre un command buffer à une queue est une opération **asynchrone** : le CPU continue de s'exécuter pendant que le GPU travaille. Les APIs modernes exposent trois primitives de synchronisation selon le contexte.
+Un **maillage triangulaire** (*triangle mesh*) est une approximation discrète d'une surface : un ensemble de triangles dont l'union forme une approximation de $\mathcal{S}$. Le principe est analogue à l'approximation d'une intégrale par une somme de Riemann : on remplace un objet continu par un nombre fini d'éléments simples, au prix d'une erreur qui diminue à mesure qu'on en ajoute.
 
-**Fences — synchronisation CPU–GPU**
+Le choix du triangle comme primitive fondamentale est justifié par deux propriétés :
 
-Une **fence** permet au CPU de savoir quand le GPU a terminé une soumission. On l'associe à la soumission, puis le CPU attend dessus avant de réutiliser les ressources consommées.
+- Un triangle est **toujours plan** : ses trois sommets définissent un unique plan.
+- Un triangle est **toujours convexe** : aucun problème de concavité à gérer.
+
+Un maillage est défini par deux tableaux :
+
+- La **liste de sommets** (*vertices*, singulier *vertex*) : la liste des positions 3D des sommets.
+- La **liste de triangles** : chaque triangle est défini par les indices de ses trois sommets dans la liste de sommets.
+
+Par exemple, un carré composé de deux triangles s'écrit :
 
 ```
-CPU : soumet command buffer → continue → attend la fence
-GPU :                          exécute  → signale la fence
+Sommets :
+  0 → (0, 0, 0)
+  1 → (1, 0, 0)
+  2 → (1, 1, 0)
+  3 → (0, 1, 0)
+
+Triangles :
+  (0, 1, 2)  — triangle inférieur droit
+  (0, 2, 3)  — triangle supérieur gauche
 ```
 
-**Semaphores — synchronisation GPU–GPU**
-
-Un **semaphore** synchronise deux soumissions au sein du GPU, typiquement entre deux queues. Une soumission signale le semaphore à la fin de son exécution ; une autre attend ce signal avant de démarrer.
-
-```
-Queue A : exécute → signale le semaphore
-Queue B :           attend le semaphore → exécute
-```
-
-C'est le mécanisme utilisé par exemple pour s'assurer que l'image est entièrement rendue avant de l'afficher à l'écran.
-
-**Barrières — synchronisation intra-command buffer**
-
-Une **barrière** est insérée directement dans un command buffer pour ordonner des opérations au sein d'une même queue. Elle garantit qu'un ensemble de commandes est terminé — et que ses effets en mémoire sont visibles — avant que les commandes suivantes ne s'exécutent.
-
-Par exemple, si une passe de calcul écrit des résultats dans la mémoire, et qu'une passe suivante les lit pour produire une image, une barrière entre les deux garantit que l'écriture est terminée avant que la lecture ne commence.
+La liste de triangles permet de **partager des sommets** entre plusieurs triangles.
 
 
-### Descriptors et Descriptor Sets
+#### Intersection rayon–triangle
 
-Les shaders ont besoin d'accéder à des ressources GPU — textures, buffers de paramètres, samplers. Un **descriptor** est un objet qui décrit une telle ressource et la façon dont le shader y accède.
+Maintenant que nous avons une nouvelle définition de notre géométrie, nous pouvons approfondir la notion d'intersection rayon–scène. Tout d'abord, posons l'intersection rayon–triangle de la façon suivante : 
 
-Les descriptors sont regroupés en **descriptor sets**. La structure d'un descriptor set — quels types de ressources, à quels emplacements, pour quels stages du pipeline — est définie par un **descriptor set layout**.
+Soient un rayon $r(t) = \mathbf{o} + t\mathbf{d}$ et un triangle de vertices $v_i$, $v_j$, $v_k$. On cherche $t^* = \min\{t > 0 \mid r(t) \in \triangle v_i v_j v_k\}$.
 
-En pratique :
+Tout point du triangle s'écrit en **coordonnées barycentriques** :
 
-- Le **layout** est déclaré une fois et décrit la structure attendue par les shaders.
-- Le **descriptor set** est une instance concrète de ce layout, liée à des ressources réelles.
-- On lie le descriptor set au pipeline avant de dessiner.
+$$P = \lambda_0\,v_i + \lambda_1\,v_j + \lambda_2\,v_k, \qquad \lambda_0 + \lambda_1 + \lambda_2 = 1,\; \lambda_0, \lambda_1, \lambda_2 \geq 0$$
 
-C'est le mécanisme principal par lequel le CPU transmet des données aux shaders s'exécutant sur le GPU.
+La condition d'intersection $r(t) = P$ s'écrit :
 
-### Mémoire : Buffers et Images
+$$\mathbf{o} + t\mathbf{d} = \lambda_0\,v_i + \lambda_1\,v_j + \lambda_2\,v_k$$
 
-Les ressources GPU occupent de la mémoire sur le device. Les APIs modernes exigent d'allouer et de gérer cette mémoire explicitement. Il existe deux types de ressources fondamentaux.
+En substituant $\lambda_0 = 1 - \lambda_1 - \lambda_2$ et en posant :
 
-**Buffers**
+- $\mathbf{e}_1 = v_j - v_i$ et $\mathbf{e}_2 = v_k - v_i$ : les deux **arêtes** (*edges*) du triangle partant de $v_i$
+- $\mathbf{s} = \mathbf{o} - v_i$ : le vecteur de $v_i$ vers l'origine du rayon
 
-Un **buffer** est un bloc de mémoire linéaire et non structuré. Il peut contenir n'importe quel type de données : positions de sommets, indices, paramètres uniformes, résultats de calcul. Le GPU y accède comme à un tableau d'octets.
+on obtient le système linéaire $3\times 3$ :
 
-**Images**
+$$\underbrace{\begin{pmatrix} \mathbf{e}_1 & \mathbf{e}_2 & -\mathbf{d} \end{pmatrix}}_{M} \begin{pmatrix} \lambda_1 \\ \lambda_2 \\ t \end{pmatrix} = \mathbf{s}$$
 
-Une **image** est une ressource structurée, associée à un format précis (ex. RGBA 8 bits, profondeur 32 bits) et optimisée pour les accès spatiaux du GPU. Elle est utilisée pour les textures, les cibles de rendu et les buffers de profondeur. Contrairement à un buffer, le GPU peut filtrer et interpoler les valeurs d'une image nativement.
+En posant $\mathbf{p} = \mathbf{d} \times \mathbf{e}_2$, $\mathbf{q} = \mathbf{s} \times \mathbf{e}_1$ et $D = \mathbf{p} \cdot \mathbf{e}_1$ (le déterminant de $M$, nul si le rayon est parallèle au triangle), la règle de Cramer donne :
 
-**Types de mémoire**
+$$t = \frac{\mathbf{q} \cdot \mathbf{e}_2}{D}, \qquad \lambda_1 = \frac{\mathbf{p} \cdot \mathbf{s}}{D}, \qquad \lambda_2 = \frac{\mathbf{q} \cdot \mathbf{d}}{D}, \qquad \lambda_0 = 1 - \lambda_1 - \lambda_2$$
 
-Chaque type de mémoire exposé par le GPU possède un ensemble de **propriétés**, qui peuvent se combiner :
+L'intersection est valide si et seulement si :
 
-- **Device-local** : la mémoire est sur la VRAM du GPU, c'est la plus rapide pour les accès GPU.
-- **Host-visible** : la mémoire est accessible et mappable par le CPU.
+$$D \neq 0 \quad \text{(rayon non parallèle au triangle)}, \qquad t > 0, \qquad \lambda_0, \lambda_1, \lambda_2 \geq 0$$
 
-Une mémoire peut être à la fois device-local et host-visible. La distinction importante n'est pas la localisation physique, mais si la mémoire est **mappable** du côté du CPU : seule une mémoire avec la propriété host-visible peut être mappée pour y lire ou y écrire directement depuis le CPU.
+Si ces conditions sont réunies, $t$ est une distance d'intersection candidate. En répétant ce test pour chaque triangle et en retenant le plus petit $t$ valide, on remonte à $t^*$ — ce qui, en notant $\mathcal{T}$ l'ensemble de tous les triangles de la scène, s'écrit :
 
-Sur la majorité des GPUs, une mémoire host-visible sera plus lente en accès GPU qu'une mémoire purement device-local. En pratique, on transfère donc les données via un buffer temporaire host-visible, puis on les copie en mémoire device-local pour tout ce qui est accédé fréquemment par le GPU.
+$$t^* = \min_{T \in \mathcal{T}} \{\, t_T > 0 \mid r(t_T) \in T \,\}$$
 
-## Pipeline
+où $t_T$ est la solution de l'intersection rayon–triangle pour le triangle $T$. C'est ce minimum global qui donne le point visible depuis le capteur dans la direction $\mathbf{d}$.
 
-Un **pipeline** est un objet qui encapsule l'intégralité de l'état du GPU nécessaire à une opération de rendu ou de calcul : quels shaders exécuter, comment interpréter les données en entrée, comment configurer la rasterisation, le test de profondeur, le blending, etc.
+##### Optimisation
 
-Dans les APIs modernes, le pipeline est **compilé une fois** et est ensuite immuable. Cela permet au driver de compiler et d'optimiser les shaders à l'avance, sans surprise à l'exécution. C'est l'une des raisons pour lesquelles ces APIs sont plus performantes que leurs prédécesseurs.
+Tester chaque triangle pour chaque rayon est coûteux. Quand tous les rayons partent du même point — comme c'est le cas avec une caméra — on peut inverser la boucle : plutôt que de demander pour chaque rayon quel triangle il touche, on demande pour chaque triangle quels pixels il couvre. En effet, si on sait où se **projettent** les trois vertices d'un triangle sur l'écran, on peut facilement connaître l'ensemble des pixels couverts par le triangle.
+Cependant, cela suppose de réexprimer les vertices dans un repère lié à la caméra et à ses paramètres.
 
-Il existe deux types de pipelines principaux.
+## Caméra
 
-### Pipeline graphique
+La caméra est caractérisée par :
 
-Le pipeline graphique est utilisé pour le rendu de géométrie. Dans sa forme la plus minimale, il est composé des étapes suivantes :
+- Sa **position** $\mathbf{o} \in \mathbb{R}^3$ : l'origine de tous les rayons.
+- Son **orientation** : trois vecteurs unitaires orthonormés $\mathbf{lookat}$, $\mathbf{up}$, et $\mathbf{right} = \mathbf{lookat} \times \mathbf{up}$.
+- Son **champ de vue** (*field of view*, FOV) $\theta$ : l'angle couvert verticalement.
+- Son **rapport d'aspect** $a = W/H$.
+- Ses **plans de découpe** $z_n$ (capteur virtuel) et $z_f$ (au-delà, les objets sont trop petits).
 
-- **Vertex shader** : transforme les sommets de la géométrie (positions, normales…).
-- **Rasterisation** : convertit la géométrie 3D en fragments 2D couvrant les pixels de l'écran.
-- **Fragment shader** : calcule la couleur de chaque fragment produit par la rasterisation.
-- **Test de profondeur** : détermine si le fragment est visible ou masqué par un autre objet.
-- **Blending** : combine la couleur du fragment avec celle déjà présente dans la cible de rendu.
+L'objectif est de calculer, pour chaque vertex $v$, sa position en coordonnées pixel $p$ telle que $p.x \in \{0,\ldots,W-1\}$ et $p.y \in \{0,\ldots,H-1\}$. On y parvient en deux transformations successives.
 
-D'autres étapes programmables peuvent s'y ajouter — tessellation, geometry shader — ou même remplacer certaines étapes existantes. Par exemple, les **mesh shaders** remplacent entièrement le vertex shader et la gestion de la géométrie par un modèle de calcul plus flexible, proche du compute shader.
+La première, la **matrice de vue** $\mathbf{V}$, exprime les points de la scène dans le **repère caméra** (*camera space*) : un repère centré sur $\mathbf{o}$, dont les axes sont alignés avec ceux de l'écran — $\mathbf{right}$ → $x$ (gauche–droite), $-\mathbf{up}$ → $y$ (haut–bas), $\mathbf{lookat}$ → $z$ (profondeur croissante). La translation ramène la caméra à l'origine ; la rotation réaligne les axes.
 
-### Pipeline de calcul
+$$\mathbf{V} = \underbrace{\begin{pmatrix} \mathbf{right}.x & \mathbf{right}.y & \mathbf{right}.z & 0 \\ -\mathbf{up}.x & -\mathbf{up}.y & -\mathbf{up}.z & 0 \\ \mathbf{lookat}.x & \mathbf{lookat}.y & \mathbf{lookat}.z & 0 \\ 0 & 0 & 0 & 1 \end{pmatrix}}_{\text{rotation}} \cdot \underbrace{\begin{pmatrix} 1 & 0 & 0 & -\mathbf{o}.x \\ 0 & 1 & 0 & -\mathbf{o}.y \\ 0 & 0 & 1 & -\mathbf{o}.z \\ 0 & 0 & 0 & 1 \end{pmatrix}}_{\text{translation}}$$
 
-Le pipeline de calcul est plus simple : il ne contient qu'un seul shader, le **compute shader**, qui s'exécute sur le GPU sans passer par la rasterisation. Il est utilisé pour tout calcul général — simulation, post-traitement, génération de données.
+On note $\mathbf{v}.x$, $\mathbf{v}.y$, $\mathbf{v}.z$ les composantes d'un vecteur $\mathbf{v}$.
 
-### Pipeline layout
+La seconde, la **matrice de projection** $\mathbf{P}$, ramène les coordonnées caméra en **coordonnées NDC** (*Normalized Device Coordinates*) : $x, y \in [-1, 1]$ et $z \in [0, 1]$. Elle met à l'échelle selon $\theta$ et $a$, et compresse la profondeur dans $[0, 1]$. La dernière ligne pose $w = z_{\text{cam}}$ : diviser toutes les composantes par $w$ effectue la **division perspective**, qui fait qu'un objet plus loin apparaît plus petit et se déplace moins vite à l'écran. Les coordonnées pixel s'obtiennent ensuite par une simple mise à l'échelle de $x$ et $y$ vers $\{0,\ldots,W-1\}$ et $\{0,\ldots,H-1\}$.
 
-Le **pipeline layout** décrit les ressources auxquelles le pipeline a accès — quels descriptor sets et dans quel ordre. Il fait le lien entre le pipeline et les descriptors vus précédemment.
+$$\mathbf{P} = \begin{pmatrix} \dfrac{1}{a\tan(\theta/2)} & 0 & 0 & 0 \\ 0 & \dfrac{1}{\tan(\theta/2)} & 0 & 0 \\ 0 & 0 & \dfrac{z_f}{z_f - z_n} & \dfrac{-z_f z_n}{z_f - z_n} \\ 0 & 0 & 1 & 0 \end{pmatrix}$$
+
+### Démonstration de la matrice de projection
+
+Soit un point $P = (x, y, z)$ en repère caméra, avec $z > 0$. On cherche ses coordonnées NDC $x_{\text{ndc}} \in [-1, 1]$.
+
+**Étape 1 — projection par triangles semblables.** Le capteur est placé au plan proche $z = z_n$. Par triangles semblables, $P$ se projette sur ce plan à la position :
+
+$$x_{\text{proj}} = x \cdot \frac{z_n}{z}$$
+
+C'est la division par $z$ qui produit la perspective : un objet plus loin ($z$ plus grand) projette ses coordonnées plus près du centre.
+
+**Étape 2 — normalisation dans $[-1, 1]$.** Le bord droit du capteur se trouve à $x = z_n \tan(\theta/2)$. Pour ramener $x_{\text{proj}}$ dans $[-1, 1]$, on divise par cette demi-largeur :
+
+$$x_{\text{ndc}} = \frac{x_{\text{proj}}}{z_n \tan(\theta/2)} = \frac{x}{z \cdot \tan(\theta/2)}$$
+
+Le $z_n$ se simplifie. Le facteur $1/\tan(\theta/2)$ encode le champ de vue : un FOV plus large ($\theta$ plus grand) donne un $\tan(\theta/2)$ plus grand, donc des objets plus petits à l'écran.
+
+**Étape 3 — encodage matriciel.** On ne peut pas diviser par $z$ directement dans une multiplication matricielle. La solution est de stocker $z$ dans la composante $w$ et de différer la division. La matrice $\mathbf{P}$ calcule :
+
+$$x_{\text{clip}} = \frac{x}{\tan(\theta/2)}, \qquad w = z$$
+
+puis la **division perspective** $x_{\text{ndc}} = x_{\text{clip}} / w$ redonne bien $x / (z \cdot \tan(\theta/2))$.
+
+## Transformations
+
+Les objets d'une scène sont définis dans leur **repère local** (ou *object space*) : un repère centré sur l'objet, indépendant de sa position dans la scène. Placer un objet dans la scène revient à lui appliquer une **transformation** pour passer de son repère local au **repère monde** (*world space*), commun à tous les objets.
+
+Cette transformation est représentée par une **matrice de modèle** $\mathbf{M} \in \mathbb{R}^{4\times 4}$. Elle peut encoder une translation, une rotation, et un changement d'échelle (TRS) :
+
+$$\mathbf{M} = \mathbf{T} \cdot \mathbf{R} \cdot \mathbf{S}$$
+
+Une matrice $3\times 3$ suffit pour une rotation ou une mise à l'échelle, mais pas pour une translation, car la translation n'est pas une application linéaire. On contourne cela en travaillant en dimension 4 : on représente le point $\pos = (x, y, z)$ par le vecteur $(x, y, z, 1)$, et la translation est alors encodée dans la quatrième colonne de $\mathbf{M}$. La position en repère monde est alors :
+
+$$\pos_{\text{world}} = \mathbf{M}\, \begin{pmatrix} \pos_{\text{local}} \\ 1 \end{pmatrix}$$
+
+
+## Notations {.unnumbered}
+
+**Maillages et intersection**
+
+| Notation | Description |
+|---|---|
+| $\mathcal{T}$ | Ensemble de tous les triangles de la scène |
+| $v_i$, $v_j$, $v_k$ | Vertices d'un triangle |
+| $P$ | Point sur un triangle (combinaison convexe des vertices) |
+| $\lambda_0$, $\lambda_1$, $\lambda_2$ | Coordonnées barycentriques de $P$ |
+| $\mathbf{e}_1 = v_j - v_i$, $\mathbf{e}_2 = v_k - v_i$ | Arêtes (*edges*) du triangle partant de $v_i$ |
+| $\mathbf{s} = \mathbf{o} - v_i$ | Vecteur de $v_i$ vers l'origine du rayon |
+| $M$ | Matrice $3\times 3$ du système d'intersection |
+| $\mathbf{p} = \mathbf{d} \times \mathbf{e}_2$, $\mathbf{q} = \mathbf{s} \times \mathbf{e}_1$ | Intermédiaires de calcul (règle de Cramer) |
+| $D = \mathbf{p} \cdot \mathbf{e}_1$ | Déterminant de $M$ ; nul si le rayon est parallèle au triangle |
+| $t_T$ | Distance d'intersection candidate avec le triangle $T$ |
+
+**Caméra**
+
+| Notation | Description |
+|---|---|
+| $\mathbf{o}$ | Position de la caméra |
+| $\mathbf{lookat}$ | Direction de visée (vecteur unitaire) |
+| $\mathbf{up}$ | Vecteur haut de la caméra (vecteur unitaire) |
+| $\mathbf{right}$ | Vecteur droit de la caméra (vecteur unitaire) |
+| $\theta$ | Champ de vue horizontal (FOV) |
+| $a = W/H$ | Rapport d'aspect de l'image |
+| $z_n$, $z_f$ | Plans de découpe proche et lointain |
+| $\mathbf{V}$ | Matrice de vue (monde → caméra), $4\times 4$ |
+| $\mathbf{P}$ | Matrice de projection (caméra → NDC), $4\times 4$ |
+
+**Sources de lumière**
+
+| Notation | Description |
+|---|---|
+| $\mathbf{d}_l$ | Direction d'une lumière directionnelle (vecteur unitaire) |
+| $\mathbf{E}$ | Intensité rayonnante d'une source (W·sr⁻¹ pour un point light, W·m⁻² pour une lumière directionnelle) |
+| $\mathbf{E}_{\text{eff}}(\pos)$ | Éclairement reçu en $\pos$ depuis un point light (W·m⁻²) |
+| $\mathbf{p}_l$ | Position d'un point light dans le repère monde |
+| $r = \|\mathbf{p}_l - \pos\|$ | Distance entre le point et le point light |
+| $\phi_{\text{inner}}$, $\phi_{\text{outer}}$ | Angles du cône intérieur et extérieur d'un spot light |
+
+**Transformations**
+
+| Notation | Description |
+|---|---|
+| $\mathbf{M}$ | Matrice de modèle (local → monde), $4\times 4$ |
+| $\mathbf{T}$, $\mathbf{R}$, $\mathbf{S}$ | Matrices de translation, rotation, et échelle |
+| $\pos_{\text{local}}$, $\pos_{\text{world}}$ | Position d'un point en repère local et en repère monde |

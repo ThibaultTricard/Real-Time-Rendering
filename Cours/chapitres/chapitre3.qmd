@@ -1,0 +1,188 @@
+# Dialogue avec mon GPU
+
+## Introduction
+
+Le chapitre précédent a montré que produire une image correcte nécessite d'évaluer une intégrale récursive pour chaque pixel, à raison de plusieurs millions de pixels par image. Pour faire cela en temps réel, il faut du matériel spécialisé : le **GPU** (Graphics Processing Unit).
+
+Contrairement au CPU, qui dispose de quelques cœurs puissants optimisés pour exécuter des tâches séquentielles complexes, le GPU est composé de milliers de petits cœurs conçus pour exécuter la même opération sur de nombreuses données en parallèle. C'est exactement ce dont on a besoin : chaque pixel peut être calculé indépendamment des autres.
+
+En pratique, le CPU prépare les données (géométrie, textures, paramètres) et envoie des commandes au GPU, qui exécute le calcul de l'image.
+
+## Les APIs graphiques
+
+Pour envoyer des commandes au GPU, on passe par une **API graphique** — une interface logicielle qui abstrait le matériel. Plusieurs APIs coexistent, chacune avec un positionnement différent :
+
+| API | Plateforme | Niveau d'abstraction |
+|---|---|---|
+| OpenGL | Multi-plateforme | Haut (historique) |
+| Vulkan | Multi-plateforme | Bas |
+| DirectX 12 | Windows / Xbox | Bas |
+| Metal | Apple | Bas |
+| WebGPU | Navigateur | Moyen |
+
+Les APIs dites de "bas niveau" (Vulkan, DirectX 12, Metal) donnent un contrôle explicite sur la mémoire, la synchronisation et l'exécution sur le GPU. Elles sont plus complexes à utiliser mais permettent d'extraire davantage de performances.
+
+Dans ce cours, nous utiliserons **Vulkan**, qui est l'API moderne multi-plateforme de référence.
+Vulkan étant trés verbeux nous utiliseron la Librairie Lavacake qui ecapsule Vulkan tout en laissant les concept clé apparant
+
+## Programmation GPU et Shaders
+
+Les cœurs du GPU exécutent des programmes appelés **shaders**. Un shader est un programme court, écrit dans un langage dédié, qui s'exécute en parallèle sur de nombreux éléments simultanément — sommets, fragments, ou éléments de calcul arbitraires.
+
+### GLSL
+
+Le langage utilisé dans ce cours est le **GLSL** (OpenGL Shading Language). C'est un langage à syntaxe proche du C, avec des types et des opérations adaptés au calcul vectoriel et matriciel natif.
+
+Un shader GLSL se compose d'une fonction `main()` et déclare explicitement ses entrées, ses sorties et les ressources auxquelles il accède. Voici la structure minimale d'un fragment shader qui produit une couleur rouge :
+
+```glsl
+#version 450
+
+layout(location = 0) out vec4 outColor;
+
+void main() {
+    outColor = vec4(1.0, 0.0, 0.0, 1.0);
+}
+```
+
+- `#version 450` : déclare la version de GLSL utilisée.
+- `layout(location = 0) out vec4 outColor` : déclare une sortie — ici la couleur du fragment, un vecteur de 4 composantes (R, G, B, A).
+- `main()` : point d'entrée du shader, exécuté pour chaque fragment.
+
+Les shaders sont compilés en **SPIR-V** — un format binaire intermédiaire — avant d'être soumis à Vulkan. Cette compilation peut se faire à l'avance ou au lancement de l'application.
+
+### Algèbre linéaire en faible dimension
+
+Le GPU dispose d'unités matérielles dédiées aux opérations d'algèbre linéaire en petite dimension. Les opérations sur des vecteurs de 2, 3 ou 4 composantes et des matrices jusqu'à $4 \times 4$ sont exécutées nativement, en une poignée de cycles.
+
+GLSL expose ces types directement : `vec2`, `vec3`, `vec4`, `mat3`, `mat4`. Les opérations associées — produit scalaire, produit vectoriel, normalisation, multiplication matrice-vecteur — sont des instructions de première classe pour le GPU :
+
+```glsl
+vec3 n = normalize(normal);       // normalisation
+float d = dot(n, lightDir);       // produit scalaire
+vec4 p = transform * vec4(pos, 1.0); // multiplication matrice-vecteur
+```
+
+C'est cette spécialisation qui rend le GPU particulièrement efficace pour le rendu : transformer des sommets, calculer des éclairages, projeter de la géométrie sont toutes des opérations qui se réduisent à de l'algèbre linéaire en dimension 3 ou 4.
+
+## Concepts clés
+
+### Commands et Command Buffers
+
+Dans les APIs modernes, on ne peut pas envoyer des instructions au GPU une par une en temps réel. À la place, on **enregistre** une séquence de commandes dans un **command buffer**, puis on soumet ce buffer au GPU en une seule fois.
+
+L'enregistrement se déroule en trois étapes :
+
+1. On ouvre le command buffer.
+2. On enregistre les commandes (dessiner, copier de la mémoire, changer d'état…).
+3. On ferme le command buffer, puis on le soumet à une queue.
+
+Ce modèle permet au driver de valider et d'optimiser les commandes à l'avance, et de les réutiliser d'une frame à l'autre si la scène n'a pas changé.
+
+### Queues
+
+Une **queue** est le canal par lequel on soumet des command buffers au GPU. Il en existe plusieurs types selon le travail à effectuer :
+
+- **Queue graphique** : rendu, rasterisation.
+- **Queue de calcul** : calcul général sur GPU (compute shaders).
+- **Queue de transfert** : copie de données entre CPU et GPU.
+
+Le GPU traite les command buffers soumis à une queue dans l'ordre de soumission, mais plusieurs queues peuvent s'exécuter en parallèle.
+
+Attention, les commandes à l'intérieur d'un même command buffer peuvent être pipelinées et exécutées hors-ordre par le GPU. Cependant certaine opération de synchronisation (barrière) nous permettent de garantire l'ordre entre des commande.
+
+### Synchronisation
+
+Soumettre un command buffer à une queue est une opération **asynchrone** : le CPU continue de s'exécuter pendant que le GPU travaille. Les APIs modernes exposent trois primitives de synchronisation selon le contexte.
+
+**Fences — synchronisation CPU–GPU**
+
+Une **fence** permet au CPU de savoir quand le GPU a terminé une soumission. On l'associe à la soumission, puis le CPU attend dessus avant de réutiliser les ressources consommées.
+
+```
+CPU : soumet command buffer → continue → attend la fence
+GPU :                          exécute  → signale la fence
+```
+
+**Semaphores — synchronisation GPU–GPU**
+
+Un **semaphore** synchronise deux soumissions au sein du GPU, typiquement entre deux queues. Une soumission signale le semaphore à la fin de son exécution ; une autre attend ce signal avant de démarrer.
+
+```
+Queue A : exécute → signale le semaphore
+Queue B :           attend le semaphore → exécute
+```
+
+C'est le mécanisme utilisé par exemple pour s'assurer que l'image est entièrement rendue avant de l'afficher à l'écran.
+
+**Barrières — synchronisation intra-command buffer**
+
+Une **barrière** est insérée directement dans un command buffer pour ordonner des opérations au sein d'une même queue. Elle garantit qu'un ensemble de commandes est terminé — et que ses effets en mémoire sont visibles — avant que les commandes suivantes ne s'exécutent.
+
+Par exemple, si une passe de calcul écrit des résultats dans la mémoire, et qu'une passe suivante les lit pour produire une image, une barrière entre les deux garantit que l'écriture est terminée avant que la lecture ne commence.
+
+
+### Descriptors et Descriptor Sets
+
+Les shaders ont besoin d'accéder à des ressources GPU — textures, buffers de paramètres, samplers. Un **descriptor** est un objet qui décrit une telle ressource et la façon dont le shader y accède.
+
+Les descriptors sont regroupés en **descriptor sets**. La structure d'un descriptor set — quels types de ressources, à quels emplacements, pour quels stages du pipeline — est définie par un **descriptor set layout**.
+
+En pratique :
+
+- Le **layout** est déclaré une fois et décrit la structure attendue par les shaders.
+- Le **descriptor set** est une instance concrète de ce layout, liée à des ressources réelles.
+- On lie le descriptor set au pipeline avant de dessiner.
+
+C'est le mécanisme principal par lequel le CPU transmet des données aux shaders s'exécutant sur le GPU.
+
+### Mémoire : Buffers et Images
+
+Les ressources GPU occupent de la mémoire sur le device. Les APIs modernes exigent d'allouer et de gérer cette mémoire explicitement. Il existe deux types de ressources fondamentaux.
+
+**Buffers**
+
+Un **buffer** est un bloc de mémoire linéaire et non structuré. Il peut contenir n'importe quel type de données : positions de sommets, indices, paramètres uniformes, résultats de calcul. Le GPU y accède comme à un tableau d'octets.
+
+**Images**
+
+Une **image** est une ressource structurée, associée à un format précis (ex. RGBA 8 bits, profondeur 32 bits) et optimisée pour les accès spatiaux du GPU. Elle est utilisée pour les textures, les cibles de rendu et les buffers de profondeur. Contrairement à un buffer, le GPU peut filtrer et interpoler les valeurs d'une image nativement.
+
+**Types de mémoire**
+
+Chaque type de mémoire exposé par le GPU possède un ensemble de **propriétés**, qui peuvent se combiner :
+
+- **Device-local** : la mémoire est sur la VRAM du GPU, c'est la plus rapide pour les accès GPU.
+- **Host-visible** : la mémoire est accessible et mappable par le CPU.
+
+Une mémoire peut être à la fois device-local et host-visible. La distinction importante n'est pas la localisation physique, mais si la mémoire est **mappable** du côté du CPU : seule une mémoire avec la propriété host-visible peut être mappée pour y lire ou y écrire directement depuis le CPU.
+
+Sur la majorité des GPUs, une mémoire host-visible sera plus lente en accès GPU qu'une mémoire purement device-local. En pratique, on transfère donc les données via un buffer temporaire host-visible, puis on les copie en mémoire device-local pour tout ce qui est accédé fréquemment par le GPU.
+
+## Pipeline
+
+Un **pipeline** est un objet qui encapsule l'intégralité de l'état du GPU nécessaire à une opération de rendu ou de calcul : quels shaders exécuter, comment interpréter les données en entrée, comment configurer la rasterisation, le test de profondeur, le blending, etc.
+
+Dans les APIs modernes, le pipeline est **compilé une fois** et est ensuite immuable. Cela permet au driver de compiler et d'optimiser les shaders à l'avance, sans surprise à l'exécution. C'est l'une des raisons pour lesquelles ces APIs sont plus performantes que leurs prédécesseurs.
+
+Il existe deux types de pipelines principaux.
+
+### Pipeline graphique
+
+Le pipeline graphique est utilisé pour le rendu de géométrie. Dans sa forme la plus minimale, il est composé des étapes suivantes :
+
+- **Vertex shader** : transforme les sommets de la géométrie (positions, normales…).
+- **Rasterisation** : convertit la géométrie 3D en fragments 2D couvrant les pixels de l'écran.
+- **Fragment shader** : calcule la couleur de chaque fragment produit par la rasterisation.
+- **Test de profondeur** : détermine si le fragment est visible ou masqué par un autre objet.
+- **Blending** : combine la couleur du fragment avec celle déjà présente dans la cible de rendu.
+
+D'autres étapes programmables peuvent s'y ajouter — tessellation, geometry shader — ou même remplacer certaines étapes existantes. Par exemple, les **mesh shaders** remplacent entièrement le vertex shader et la gestion de la géométrie par un modèle de calcul plus flexible, proche du compute shader.
+
+### Pipeline de calcul
+
+Le pipeline de calcul est plus simple : il ne contient qu'un seul shader, le **compute shader**, qui s'exécute sur le GPU sans passer par la rasterisation. Il est utilisé pour tout calcul général — simulation, post-traitement, génération de données.
+
+### Pipeline layout
+
+Le **pipeline layout** décrit les ressources auxquelles le pipeline a accès — quels descriptor sets et dans quel ordre. Il fait le lien entre le pipeline et les descriptors vus précédemment.
