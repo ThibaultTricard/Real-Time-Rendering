@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 580 300" font-family="Georgia, serif" font-size="24" font-style="italic">
+
+  <!-- FOV half-cone fill -->
+  <polygon points="60,140 300,50 300,140" fill="#ddeeff" opacity="0.8"/>
+
+  <!-- X-axis -->
+  <line x1="60" y1="145" x2="60" y2="35" stroke="#aaa" stroke-width="1.2"/>
+  <polygon points="60,30 56,42 64,42" fill="#aaa"/>
+  <text x="68" y="34" fill="#aaa">x</text>
+
+  <!-- Z-axis (dashed) -->
+  <line x1="40" y1="140" x2="330" y2="140" stroke="#aaa" stroke-width="1.2" stroke-dasharray="5,4"/>
+  <polygon points="330,140 318,136 318,144" fill="#aaa"/>
+  <text x="337" y="149" fill="#aaa">z</text>
+
+  <!-- Bottom ray (dashed, symmetric) -->
+  <line x1="60" y1="140" x2="300" y2="230" stroke="#bbb" stroke-width="1.2" stroke-dasharray="4,3"/>
+
+  <!-- Top ray -->
+  <line x1="60" y1="140" x2="300" y2="50" stroke="#333" stroke-width="1.8"/>
+
+  <!-- Near plane -->
+  <line x1="300" y1="40" x2="300" y2="240" stroke="#2471a3" stroke-width="2.5"/>
+
+  <!-- Camera dot -->
+  <circle cx="60" cy="140" r="4.5" fill="#222"/>
+  <text x="60" y="170" text-anchor="middle" fill="#444">caméra</text>
+
+  <!-- Right angle marker at (300,140) -->
+  <path d="M 300,130 L 290,130 L 290,140" fill="none" stroke="#888" stroke-width="1.2"/>
+
+  <!-- z_n horizontal dimension -->
+  <line x1="60" y1="248" x2="300" y2="248" stroke="#666" stroke-width="1"/>
+  <line x1="60" y1="242" x2="60" y2="254" stroke="#666" stroke-width="1"/>
+  <line x1="300" y1="242" x2="300" y2="254" stroke="#666" stroke-width="1"/>
+  <text x="180" y="278" text-anchor="middle" fill="#555">z<tspan dy="5" font-size="16" font-style="normal">n</tspan></text>
+
+  <!-- Half-width dimension (right side) -->
+  <line x1="307" y1="50" x2="320" y2="50" stroke="#666" stroke-width="1"/>
+  <line x1="307" y1="140" x2="320" y2="140" stroke="#666" stroke-width="1"/>
+  <line x1="313" y1="50" x2="313" y2="140" stroke="#666" stroke-width="1"/>
+  <text x="326" y="101" fill="#555">a·z<tspan dy="5" font-size="16" font-style="normal">n</tspan><tspan dy="-5"> tan(θ/2)</tspan></text>
+
+  <!-- Near plane label -->
+  <text x="300" y="33" text-anchor="middle" fill="#2471a3">plan proche</text>
+
+</svg>

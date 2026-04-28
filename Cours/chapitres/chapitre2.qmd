@@ -23,7 +23,7 @@ En rendu temps réel, la lumière est rarement représentée comme une surface �
 
 ### Lumière directionnelle
 
-Une **lumière directionnelle** modélise une source infiniment lointaine — typiquement le soleil. Elle est caractérisée par :
+Une **lumière directionnelle** modélise une source infiniment lointaine (typiquement le soleil). Elle est caractérisée par :
 
 - Une **direction** $\mathbf{d} \in \mathbb{R}^3$ (vecteur unitaire, de la lumière vers la scène).
 - Un **éclairement** $\mathbf{E} \in \mathbb{R}^3$ (irradiance, en W·m⁻²) : la puissance lumineuse reçue par unité de surface, pour chaque composante RGB.
@@ -32,7 +32,7 @@ Comme la source est à l'infini, tous les points de la scène reçoivent la lumi
 
 ### Point light
 
-Un **point light** modélise une source ponctuelle émettant de la lumière dans toutes les directions — une ampoule, par exemple. Il est caractérisé par :
+Un **point light** modélise une source ponctuelle émettant de la lumière dans toutes les directions (une ampoule, par exemple). Il est caractérisé par :
 
 - Une **position** $\mathbf{p} \in \mathbb{R}^3$.
 - Une **intensité rayonnante** $\mathbf{E} \in \mathbb{R}^3$ (en W·sr⁻¹) : la puissance émise par stéradian, pour chaque composante RGB.
@@ -45,7 +45,7 @@ $$\mathbf{E}_{\text{eff}}(\pos) = \frac{\mathbf{E}}{\|\mathbf{p} - \pos\|^2} \qu
 
 ### Spot light
 
-Un **spot light** est un point light dont le cône d'émission est limité — comme un projecteur. Il ajoute deux paramètres au point light :
+Un **spot light** est un point light dont le cône d'émission est limité (comme un projecteur). Il ajoute deux paramètres au point light :
 
 - Une **direction** $\mathbf{s}$ (axe du cône).
 - Un **angle de coupure** $\phi_{\text{outer}}$ et un **angle de pénombre** $\phi_{\text{inner}}$.
@@ -64,7 +64,7 @@ La contribution finale est celle du point light, multipliée par $a(\theta)$.
 
 Dans le chapitre précédent, on a noté $\mathcal{S}$ l'ensemble des surfaces de la scène, sans préciser ce qu'est une surface. On comble maintenant ce manque.
 
-**Définition** — Une **surface** $\mathcal{S} \subset \mathbb{R}^3$ est un ensemble continu qui sépare $\mathbb{R}^3$ en deux régions disjointes : l'**intérieur** et l'**extérieur**.
+**Définition.** Une **surface** $\mathcal{S} \subset \mathbb{R}^3$ est un ensemble continu qui sépare $\mathbb{R}^3$ en deux régions disjointes : l'**intérieur** et l'**extérieur**.
 
 C'est cet ensemble $\mathcal{S}$ qui apparaît dans le test d'intersection du chapitre précédent : $t^* = \min\{t > 0 \mid r(t) \in \mathcal{S}\}$.
 
@@ -138,15 +138,15 @@ L'intersection est valide si et seulement si :
 
 $$D \neq 0 \quad \text{(rayon non parallèle au triangle)}, \qquad t > 0, \qquad \lambda_0, \lambda_1, \lambda_2 \geq 0$$
 
-Si ces conditions sont réunies, $t$ est une distance d'intersection candidate. En répétant ce test pour chaque triangle et en retenant le plus petit $t$ valide, on remonte à $t^*$ — ce qui, en notant $\mathcal{T}$ l'ensemble de tous les triangles de la scène, s'écrit :
+Si ces conditions sont réunies, $t$ est une distance d'intersection candidate. En répétant ce test pour chaque triangle et en retenant le plus petit $t$ valide, on remonte à $t^*$, ce qui, en notant $\mathcal{T}$ l'ensemble de tous les triangles de la scène, s'écrit :
 
 $$t^* = \min_{T \in \mathcal{T}} \{\, t_T > 0 \mid r(t_T) \in T \,\}$$
 
-où $t_T$ est la solution de l'intersection rayon–triangle pour le triangle $T$. C'est ce minimum global qui donne le point visible depuis le capteur dans la direction $\mathbf{d}$.
+où $t_T$ est la solution de l'intersection rayon–triangle pour le triangle $T$. C'est ce minimum qui donne le point visible depuis le capteur dans la direction $\mathbf{d}$.
 
 ##### Optimisation
 
-Tester chaque triangle pour chaque rayon est coûteux. Quand tous les rayons partent du même point — comme c'est le cas avec une caméra — on peut inverser la boucle : plutôt que de demander pour chaque rayon quel triangle il touche, on demande pour chaque triangle quels pixels il couvre. En effet, si on sait où se **projettent** les trois vertices d'un triangle sur l'écran, on peut facilement connaître l'ensemble des pixels couverts par le triangle.
+Tester chaque triangle pour chaque rayon est coûteux. Quand tous les rayons partent du même point (comme c'est le cas avec une caméra), on peut inverser la boucle : plutôt que de demander pour chaque rayon quel triangle il touche, on demande pour chaque triangle quels pixels il couvre. En effet, si on sait où se **projettent** les trois vertices d'un triangle sur l'écran, on peut facilement connaître l'ensemble des pixels couverts par le triangle.
 Cependant, cela suppose de réexprimer les vertices dans un repère lié à la caméra et à ses paramètres.
 
 ## Caméra
@@ -159,51 +159,93 @@ La caméra est caractérisée par :
 - Son **rapport d'aspect** $a = W/H$.
 - Ses **plans de découpe** $z_n$ (capteur virtuel) et $z_f$ (au-delà, les objets sont trop petits).
 
-L'objectif est de calculer, pour chaque vertex $v$, sa position en coordonnées pixel $p$ telle que $p.x \in \{0,\ldots,W-1\}$ et $p.y \in \{0,\ldots,H-1\}$. On y parvient en deux transformations successives.
+L'objectif est de calculer, pour chaque vertex $v$, ses coordonnées pixel $(w, h)$ telles que $w \in \{0,\ldots,W-1\}$ et $h \in \{0,\ldots,H-1\}$, et telles que tout point situé sur le même rayon depuis la caméra donne les mêmes coordonnées pixel : c'est la propriété fondamentale qui garantit la cohérence avec l'intersection rayon–scène : peu importe à quelle distance un triangle intersecte un rayon, il couvre les mêmes pixels. On y parvient en deux transformations successives.
 
-La première, la **matrice de vue** $\mathbf{V}$, exprime les points de la scène dans le **repère caméra** (*camera space*) : un repère centré sur $\mathbf{o}$, dont les axes sont alignés avec ceux de l'écran — $\mathbf{right}$ → $x$ (gauche–droite), $-\mathbf{up}$ → $y$ (haut–bas), $\mathbf{lookat}$ → $z$ (profondeur croissante). La translation ramène la caméra à l'origine ; la rotation réaligne les axes.
+La première, la **matrice de vue** $\mathbf{V}$, exprime les points de la scène dans le **repère caméra** (*camera space*) : un repère centré sur $\mathbf{o}$, dont les axes sont alignés avec ceux de l'écran : $\mathbf{right}$ → $x$ (gauche–droite), $-\mathbf{up}$ → $y$ (haut–bas), $\mathbf{lookat}$ → $z$ (profondeur croissante). La translation ramène la caméra à l'origine ; la rotation réaligne les axes.
 
 $$\mathbf{V} = \underbrace{\begin{pmatrix} \mathbf{right}.x & \mathbf{right}.y & \mathbf{right}.z & 0 \\ -\mathbf{up}.x & -\mathbf{up}.y & -\mathbf{up}.z & 0 \\ \mathbf{lookat}.x & \mathbf{lookat}.y & \mathbf{lookat}.z & 0 \\ 0 & 0 & 0 & 1 \end{pmatrix}}_{\text{rotation}} \cdot \underbrace{\begin{pmatrix} 1 & 0 & 0 & -\mathbf{o}.x \\ 0 & 1 & 0 & -\mathbf{o}.y \\ 0 & 0 & 1 & -\mathbf{o}.z \\ 0 & 0 & 0 & 1 \end{pmatrix}}_{\text{translation}}$$
 
 On note $\mathbf{v}.x$, $\mathbf{v}.y$, $\mathbf{v}.z$ les composantes d'un vecteur $\mathbf{v}$.
 
-La seconde, la **matrice de projection** $\mathbf{P}$, ramène les coordonnées caméra en **coordonnées NDC** (*Normalized Device Coordinates*) : $x, y \in [-1, 1]$ et $z \in [0, 1]$. Elle met à l'échelle selon $\theta$ et $a$, et compresse la profondeur dans $[0, 1]$. La dernière ligne pose $w = z_{\text{cam}}$ : diviser toutes les composantes par $w$ effectue la **division perspective**, qui fait qu'un objet plus loin apparaît plus petit et se déplace moins vite à l'écran. Les coordonnées pixel s'obtiennent ensuite par une simple mise à l'échelle de $x$ et $y$ vers $\{0,\ldots,W-1\}$ et $\{0,\ldots,H-1\}$.
-
+La seconde, la **matrice de projection** $\mathbf{P}$, transforme les coordonnées caméra en **coordonnées clip**. Elle met à l'échelle selon $\theta$ et $a$, et prépare la compression de la profondeur. 
+La division perspective donne ensuite les **coordonnées NDC** (*Normalized Device Coordinates*) : $x, y \in [-1, 1]$ et $z \in [0, 1]$.
 $$\mathbf{P} = \begin{pmatrix} \dfrac{1}{a\tan(\theta/2)} & 0 & 0 & 0 \\ 0 & \dfrac{1}{\tan(\theta/2)} & 0 & 0 \\ 0 & 0 & \dfrac{z_f}{z_f - z_n} & \dfrac{-z_f z_n}{z_f - z_n} \\ 0 & 0 & 1 & 0 \end{pmatrix}$$
+
+
+
+
+La dernière ligne de $\mathbf{P}$ pose $w_{\text{clip}} = z_{\text{cam}}$, ce qui permet d'effectuer la **division perspective** (la division de toutes les composantes par $w_{\text{clip}}$) :
+
+$$(x_{\text{ndc}},\, y_{\text{ndc}},\, z_{\text{ndc}}) = \left(\frac{x_{\text{clip}}}{w_{\text{clip}}},\; \frac{y_{\text{clip}}}{w_{\text{clip}}},\; \frac{z_{\text{clip}}}{w_{\text{clip}}}\right)$$
+
+Cette opération produit l'effet de perspective : un objet plus loin apparaît plus petit à l'écran. Les coordonnées pixel s'obtiennent ensuite par une simple mise à l'échelle de $x_{\text{ndc}}$ et $y_{\text{ndc}}$ vers $\{0,\ldots,W-1\}$ et $\{0,\ldots,H-1\}$.
+
+
 
 ### Démonstration de la matrice de projection
 
-Soit un point $P = (x, y, z)$ en repère caméra, avec $z > 0$. On cherche ses coordonnées NDC $x_{\text{ndc}} \in [-1, 1]$.
+Soit un point $P = (x, y, z)$ en repère caméra, avec $z > 0$. On cherche ses coordonnées NDC $(x_{\text{ndc}}, y_{\text{ndc}}, z_{\text{ndc}})$.
 
-**Étape 1 — projection par triangles semblables.** Le capteur est placé au plan proche $z = z_n$. Par triangles semblables, $P$ se projette sur ce plan à la position :
+#### Coordonnées $x$ et $y$
 
-$$x_{\text{proj}} = x \cdot \frac{z_n}{z}$$
+En perspective, les objets plus loin paraissent plus petits. Intuitivement, l'apparence d'un objet est inversement proportionnelle à sa distance, et en espace caméra $z$ est précisément cette distance. On cherche donc une projection de la forme $x_{\text{ndc}} \propto x/z$.
 
-C'est la division par $z$ qui produit la perspective : un objet plus loin ($z$ plus grand) projette ses coordonnées plus près du centre.
+Cette forme satisfait aussi directement notre deuxième contrainte : en espace caméra l'origine est à zéro, donc un rayon s'écrit $r(t) = t\mathbf{d}$. Pour tout $t > 0$ :
 
-**Étape 2 — normalisation dans $[-1, 1]$.** Le bord droit du capteur se trouve à $x = z_n \tan(\theta/2)$. Pour ramener $x_{\text{proj}}$ dans $[-1, 1]$, on divise par cette demi-largeur :
+$$\frac{td_x}{td_z} = \frac{d_x}{d_z}$$
 
-$$x_{\text{ndc}} = \frac{x_{\text{proj}}}{z_n \tan(\theta/2)} = \frac{x}{z \cdot \tan(\theta/2)}$$
+Le paramètre $t$ se simplifie : tous les points d'un même rayon donnent le même rapport $x/z$, donc le même pixel.
 
-Le $z_n$ se simplifie. Le facteur $1/\tan(\theta/2)$ encode le champ de vue : un FOV plus large ($\theta$ plus grand) donne un $\tan(\theta/2)$ plus grand, donc des objets plus petits à l'écran.
+Il reste cependant à fixer le facteur de proportionnalité : on veut que la partie visible de la scène (définie par le champ de vue $\theta$ et le rapport d'aspect $a$) corresponde exactement à $x_{\text{ndc}}, y_{\text{ndc}} \in [-1, 1]$. C'est ce que fait l'étape suivante.
 
-**Étape 3 — encodage matriciel.** On ne peut pas diviser par $z$ directement dans une multiplication matricielle. La solution est de stocker $z$ dans la composante $w$ et de différer la division. La matrice $\mathbf{P}$ calcule :
+**Étape 1 : projection par triangles semblables.** On formalise cette intuition. Le capteur est placé au plan proche $z = z_n$. Par triangles semblables, $P = (x, y, z)$ se projette sur ce plan à :
 
-$$x_{\text{clip}} = \frac{x}{\tan(\theta/2)}, \qquad w = z$$
+$$x_{\text{proj}} = x \cdot \frac{z_n}{z}, \qquad y_{\text{proj}} = y \cdot \frac{z_n}{z}$$
 
-puis la **division perspective** $x_{\text{ndc}} = x_{\text{clip}} / w$ redonne bien $x / (z \cdot \tan(\theta/2))$.
+**Étape 2 : normalisation dans $[-1, 1]$.** Il reste à ramener ces coordonnées dans $[-1, 1]$. Le FOV $\theta$ est l'angle vertical total du champ de vue. Le triangle rectangle formé par l'axe $z$, le bord supérieur du capteur et le plan proche donne, par définition de la tangente, une demi-hauteur égale à $z_n \tan(\theta/2)$, et une demi-largeur $a$ fois plus grande, avec $a = W/H$ :
 
-## Transformations
+![](figures/fov-projection-both.svg){fig-align="center" width="100%"}
 
-Les objets d'une scène sont définis dans leur **repère local** (ou *object space*) : un repère centré sur l'objet, indépendant de sa position dans la scène. Placer un objet dans la scène revient à lui appliquer une **transformation** pour passer de son repère local au **repère monde** (*world space*), commun à tous les objets.
+En divisant par ces demi-dimensions :
 
-Cette transformation est représentée par une **matrice de modèle** $\mathbf{M} \in \mathbb{R}^{4\times 4}$. Elle peut encoder une translation, une rotation, et un changement d'échelle (TRS) :
+$$x_{\text{ndc}} = \frac{x_{\text{proj}}}{a\, z_n \tan(\theta/2)} = \frac{x}{z \cdot a\tan(\theta/2)}, \qquad y_{\text{ndc}} = \frac{y_{\text{proj}}}{z_n \tan(\theta/2)} = \frac{y}{z \cdot \tan(\theta/2)}$$
 
-$$\mathbf{M} = \mathbf{T} \cdot \mathbf{R} \cdot \mathbf{S}$$
+Le facteur $1/\tan(\theta/2)$ encode le champ de vue : un FOV plus large donne un $\tan(\theta/2)$ plus grand, donc des objets plus petits à l'écran.
 
-Une matrice $3\times 3$ suffit pour une rotation ou une mise à l'échelle, mais pas pour une translation, car la translation n'est pas une application linéaire. On contourne cela en travaillant en dimension 4 : on représente le point $\pos = (x, y, z)$ par le vecteur $(x, y, z, 1)$, et la translation est alors encodée dans la quatrième colonne de $\mathbf{M}$. La position en repère monde est alors :
+**Étape 3 : encodage matriciel.** On ne peut pas diviser par $z$ dans une multiplication matricielle. La solution est de stocker $z$ dans la composante $w$ et de différer la division. La matrice $\mathbf{P}$ calcule :
 
-$$\pos_{\text{world}} = \mathbf{M}\, \begin{pmatrix} \pos_{\text{local}} \\ 1 \end{pmatrix}$$
+$$x_{\text{clip}} = \frac{x}{a\tan(\theta/2)}, \qquad y_{\text{clip}} = \frac{y}{\tan(\theta/2)}, \qquad w = z$$
+
+puis la **division perspective** $x_{\text{ndc}} = x_{\text{clip}} / w$ et $y_{\text{ndc}} = y_{\text{clip}} / w$ redonnent les formules ci-dessus. La matrice est donc partiellement déterminée, les coefficients de la ligne $z$ restant libres :
+
+$$\mathbf{P} = \begin{pmatrix} \dfrac{1}{a\tan(\theta/2)} & 0 & 0 & 0 \\[8pt] 0 & \dfrac{1}{\tan(\theta/2)} & 0 & 0 \\[8pt] 0 & 0 & \underline{A} & \underline{B} \\ 0 & 0 & 1 & 0 \end{pmatrix}$$
+
+La troisième ligne est entièrement libre, mais on impose que $z_{\text{ndc}}$ ne dépende pas de $x$ et $y$ : les deux premières colonnes sont donc nulles. Il reste deux degrés de liberté, $A$ et $B$, déterminés dans la section suivante.
+
+#### Coordonnée $z$ (profondeur)
+
+On veut ramener $z \in [z_n, z_f]$ dans $z_{\text{ndc}} \in [0, 1]$. Une mise à l'échelle linéaire directe serait possible, mais par convention on préfère diviser toutes les composantes par $w_{\text{clip}}$ plutôt qu'une partie seulement. Puisque $w_{\text{clip}} = z$ et que $z_{\text{clip}}$ doit être linéaire en $z$ (c'est une ligne de matrice), la forme est imposée :
+
+$$z_{\text{ndc}} = \frac{z_{\text{clip}}}{w_{\text{clip}}} = \frac{Az + B}{z}$$
+
+On cherche $A$ et $B$ tels que :
+
+Les conditions aux bords imposent :
+
+$$z = z_n \Rightarrow z_{\text{ndc}} = 0 : \quad A + \frac{B}{z_n} = 0 \;\Rightarrow\; B = -Az_n$$
+
+$$z = z_f \Rightarrow z_{\text{ndc}} = 1 : \quad A + \frac{B}{z_f} = 1$$
+
+En substituant $B = -Az_n$ :
+
+$$A - \frac{Az_n}{z_f} = 1 \;\Rightarrow\; A\,\frac{z_f - z_n}{z_f} = 1 \;\Rightarrow\; A = \frac{z_f}{z_f - z_n}$$
+
+d'où $B = \dfrac{-z_f\, z_n}{z_f - z_n}$.
+
+La troisième ligne de $\mathbf{P}$ encode donc $z_{\text{clip}} = Az + B$, qui devient $z_{\text{ndc}} = z_{\text{clip}} / w$ après division perspective. La matrice est maintenant entièrement déterminée :
+
+$$\mathbf{P} = \begin{pmatrix} \dfrac{1}{a\tan(\theta/2)} & 0 & 0 & 0 \\[8pt] 0 & \dfrac{1}{\tan(\theta/2)} & 0 & 0 \\[8pt] 0 & 0 & \dfrac{z_f}{z_f - z_n} & \dfrac{-z_f\, z_n}{z_f - z_n} \\ 0 & 0 & 1 & 0 \end{pmatrix}$$
+
 
 
 ## Notations {.unnumbered}
@@ -231,11 +273,15 @@ $$\pos_{\text{world}} = \mathbf{M}\, \begin{pmatrix} \pos_{\text{local}} \\ 1 \e
 | $\mathbf{lookat}$ | Direction de visée (vecteur unitaire) |
 | $\mathbf{up}$ | Vecteur haut de la caméra (vecteur unitaire) |
 | $\mathbf{right}$ | Vecteur droit de la caméra (vecteur unitaire) |
-| $\theta$ | Champ de vue horizontal (FOV) |
+| $\theta$ | Champ de vue vertical (FOV) |
 | $a = W/H$ | Rapport d'aspect de l'image |
 | $z_n$, $z_f$ | Plans de découpe proche et lointain |
 | $\mathbf{V}$ | Matrice de vue (monde → caméra), $4\times 4$ |
-| $\mathbf{P}$ | Matrice de projection (caméra → NDC), $4\times 4$ |
+| $\mathbf{P}$ | Matrice de projection (caméra → clip), $4\times 4$ |
+| $x_{\text{proj}}, y_{\text{proj}}$ | Projection d'un point sur le plan proche |
+| $x_{\text{clip}}, y_{\text{clip}}, z_{\text{clip}}, w_{\text{clip}}$ | Coordonnées clip (sortie de $\mathbf{P}$) |
+| $x_{\text{ndc}}, y_{\text{ndc}}, z_{\text{ndc}}$ | Coordonnées NDC (après division perspective), $x,y \in [-1,1]$, $z \in [0,1]$ |
+| $A = \dfrac{z_f}{z_f - z_n}$, $B = \dfrac{-z_f z_n}{z_f - z_n}$ | Coefficients de la ligne $z$ de $\mathbf{P}$ |
 
 **Sources de lumière**
 

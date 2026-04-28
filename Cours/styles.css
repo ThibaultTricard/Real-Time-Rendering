@@ -2,6 +2,11 @@ p {
   text-align: justify;
 }
 
+.quarto-layout-cell {
+  display: flex;
+  justify-content: center;
+}
+
 /* Cover page layout */
 .cover-page {
   display: flex;
