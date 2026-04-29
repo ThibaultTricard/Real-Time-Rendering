@@ -134,7 +134,7 @@ Compilez et exécutez. Observez le résultat de la vérification de `D`. Est-il 
 
 ### Les barrières mémoire
 
-Sur GPU, les writes d'un shader ne sont **pas automatiquement visibles** pour le shader suivant, même dans le même command buffer. Sans synchronisation explicite, le driver est libre de réordonner ou d'exécuter les deux dispatches en parallèle.
+Sur GPU, les écritures d'un shader ne sont **pas automatiquement visibles** pour le shader suivant, même dans le même command buffer. Sans synchronisation explicite, le driver est libre de réordonner ou d'exécuter les deux dispatches en parallèle.
 
 Une **barrière mémoire** force le GPU à attendre que toutes les écritures précédentes soient visibles avant de continuer :
 

@@ -73,3 +73,18 @@ add_executable(TP3_exercice3 "src/TP3/exercice3.cpp")
 target_link_libraries(TP3_exercice3 PRIVATE LavaCake::LavaCake glfw glm::glm tinyobjloader)
 target_include_directories(TP3_exercice3 PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(TP3_exercice3 PRIVATE PROJECT_ROOT="${CMAKE_SOURCE_DIR}/")
+
+add_executable(TP5_exercice1 "src/TP5/exercice1.cpp")
+target_link_libraries(TP5_exercice1 PRIVATE LavaCake::LavaCake glfw glm::glm tinyobjloader)
+target_include_directories(TP5_exercice1 PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(TP5_exercice1 PRIVATE PROJECT_ROOT="${CMAKE_SOURCE_DIR}/")
+
+add_executable(TP5_exercice2 "src/TP5/exercice2.cpp")
+target_link_libraries(TP5_exercice2 PRIVATE LavaCake::LavaCake glfw glm::glm tinyobjloader)
+target_include_directories(TP5_exercice2 PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(TP5_exercice2 PRIVATE PROJECT_ROOT="${CMAKE_SOURCE_DIR}/")
+
+add_executable(TP5_exercice3 "src/TP5/exercice3.cpp")
+target_link_libraries(TP5_exercice3 PRIVATE LavaCake::LavaCake glfw glm::glm tinyobjloader)
+target_include_directories(TP5_exercice3 PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(TP5_exercice3 PRIVATE PROJECT_ROOT="${CMAKE_SOURCE_DIR}/")

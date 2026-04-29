@@ -31,6 +31,7 @@ struct Mesh {
     std::vector<uint32_t> positionIndices;
     std::vector<uint32_t> normalIndices;
     std::vector<uint32_t> texcoordIndices;
+    std::vector<uint32_t> tangentIndices;
 
     int materialIndex = -1;
 };

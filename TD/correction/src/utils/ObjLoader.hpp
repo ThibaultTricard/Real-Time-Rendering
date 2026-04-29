@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <cmath>
 #include <unordered_map>
+#include <map>
+#include <tuple>
 
 #include "Scene.hpp"
 
@@ -170,7 +172,6 @@ inline bool loadModel(const std::string& filepath,
 }
 
 // Load OBJ model with tangent computation for normal mapping
-// Tangents share the same indices as normals
 inline bool loadModel(const std::string& filepath,
                       const std::string& mtlSearchPath,
                       std::vector<float>& positions,
@@ -179,7 +180,8 @@ inline bool loadModel(const std::string& filepath,
                       std::vector<float>& tangents,
                       std::vector<uint32_t>& positionIndices,
                       std::vector<uint32_t>& normalIndices,
-                      std::vector<uint32_t>& texcoordIndices) {
+                      std::vector<uint32_t>& texcoordIndices,
+                      std::vector<uint32_t>& tangentIndices) {
 
     tinyobj::ObjReaderConfig readerConfig;
     readerConfig.mtl_search_path = mtlSearchPath;
@@ -200,114 +202,72 @@ inline bool loadModel(const std::string& filepath,
     const auto& attrib = reader.GetAttrib();
     const auto& shapes = reader.GetShapes();
 
-    // Copy raw attribute data directly from tinyobj
     positions = attrib.vertices;
-    normals = attrib.normals;
+    normals   = attrib.normals;
     texcoords = attrib.texcoords;
 
-    // If no normals exist, add a default normal
-    if (normals.empty()) {
-        normals = {0.0f, 1.0f, 0.0f};
-    }
+    if (normals.empty())   normals   = {0.0f, 1.0f, 0.0f};
+    if (texcoords.empty()) texcoords = {0.0f, 0.0f};
 
-    // If no texcoords exist, add a default texcoord
-    if (texcoords.empty()) {
-        texcoords = {0.0f, 0.0f};
-    }
-
-    // Initialize tangents (one per normal)
-    size_t numNormals = normals.size() / 3;
-    tangents.resize(numNormals * 3, 0.0f);
-
-    // Compute tangents per triangle and store at normal indices
-    for (const auto& shape : shapes) {
-        size_t indexOffset = 0;
-        for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); f++) {
-            size_t fv = shape.mesh.num_face_vertices[f];
-
-            if (fv == 3) {
-                tinyobj::index_t idx0 = shape.mesh.indices[indexOffset + 0];
-                tinyobj::index_t idx1 = shape.mesh.indices[indexOffset + 1];
-                tinyobj::index_t idx2 = shape.mesh.indices[indexOffset + 2];
-
-                // Get positions
-                float p0x = attrib.vertices[3 * idx0.vertex_index + 0];
-                float p0y = attrib.vertices[3 * idx0.vertex_index + 1];
-                float p0z = attrib.vertices[3 * idx0.vertex_index + 2];
-
-                float p1x = attrib.vertices[3 * idx1.vertex_index + 0];
-                float p1y = attrib.vertices[3 * idx1.vertex_index + 1];
-                float p1z = attrib.vertices[3 * idx1.vertex_index + 2];
-
-                float p2x = attrib.vertices[3 * idx2.vertex_index + 0];
-                float p2y = attrib.vertices[3 * idx2.vertex_index + 1];
-                float p2z = attrib.vertices[3 * idx2.vertex_index + 2];
-
-                // Get texture coordinates
-                float uv0x = 0.0f, uv0y = 0.0f;
-                float uv1x = 0.0f, uv1y = 0.0f;
-                float uv2x = 0.0f, uv2y = 0.0f;
-
-                if (idx0.texcoord_index >= 0) {
-                    uv0x = attrib.texcoords[2 * idx0.texcoord_index + 0];
-                    uv0y = attrib.texcoords[2 * idx0.texcoord_index + 1];
-                }
-                if (idx1.texcoord_index >= 0) {
-                    uv1x = attrib.texcoords[2 * idx1.texcoord_index + 0];
-                    uv1y = attrib.texcoords[2 * idx1.texcoord_index + 1];
-                }
-                if (idx2.texcoord_index >= 0) {
-                    uv2x = attrib.texcoords[2 * idx2.texcoord_index + 0];
-                    uv2y = attrib.texcoords[2 * idx2.texcoord_index + 1];
-                }
-
-                // Compute edge vectors
-                float edge1x = p1x - p0x, edge1y = p1y - p0y, edge1z = p1z - p0z;
-                float edge2x = p2x - p0x, edge2y = p2y - p0y, edge2z = p2z - p0z;
-
-                // Compute UV deltas
-                float deltaUV1x = uv1x - uv0x, deltaUV1y = uv1y - uv0y;
-                float deltaUV2x = uv2x - uv0x, deltaUV2y = uv2y - uv0y;
-
-                // Compute tangent
-                float denom = deltaUV1x * deltaUV2y - deltaUV2x * deltaUV1y;
-                float invDenom = (std::abs(denom) > 1e-6f) ? 1.0f / denom : 0.0f;
-
-                float tx = invDenom * (deltaUV2y * edge1x - deltaUV1y * edge2x);
-                float ty = invDenom * (deltaUV2y * edge1y - deltaUV1y * edge2y);
-                float tz = invDenom * (deltaUV2y * edge1z - deltaUV1y * edge2z);
-
-                // Normalize tangent
-                float len = std::sqrt(tx * tx + ty * ty + tz * tz);
-                if (len > 1e-6f) {
-                    tx /= len; ty /= len; tz /= len;
-                } else {
-                    tx = 1.0f; ty = 0.0f; tz = 0.0f;
-                }
-
-                // Store tangent at each vertex's normal index
-                for (size_t v = 0; v < 3; v++) {
-                    tinyobj::index_t idx = shape.mesh.indices[indexOffset + v];
-                    if (idx.normal_index >= 0) {
-                        size_t ni = static_cast<size_t>(idx.normal_index);
-                        tangents[3 * ni + 0] = tx;
-                        tangents[3 * ni + 1] = ty;
-                        tangents[3 * ni + 2] = tz;
-                    }
-                }
-            }
-
-            indexOffset += fv;
-        }
-    }
-
-    // Extract indices
+    // Build flat index arrays first
     for (const auto& shape : shapes) {
         for (const auto& index : shape.mesh.indices) {
             positionIndices.push_back(static_cast<uint32_t>(index.vertex_index));
-            normalIndices.push_back(index.normal_index >= 0 ? static_cast<uint32_t>(index.normal_index) : 0);
+            normalIndices  .push_back(index.normal_index   >= 0 ? static_cast<uint32_t>(index.normal_index)   : 0);
             texcoordIndices.push_back(index.texcoord_index >= 0 ? static_cast<uint32_t>(index.texcoord_index) : 0);
         }
+    }
+
+    // Deduplicate tangents by (pi, ni, ti) — full vertex identity
+    std::map<std::tuple<uint32_t,uint32_t,uint32_t>, uint32_t> tangentIndexMap;
+    std::vector<std::array<float,3>> tangentAccum;
+    tangentIndices.resize(positionIndices.size());
+
+    size_t numTriangles = positionIndices.size() / 3;
+    for (size_t f = 0; f < numTriangles; f++) {
+        uint32_t pi0 = positionIndices[3*f+0], pi1 = positionIndices[3*f+1], pi2 = positionIndices[3*f+2];
+        uint32_t ni0 = normalIndices[3*f+0],   ni1 = normalIndices[3*f+1],   ni2 = normalIndices[3*f+2];
+        uint32_t ti0 = texcoordIndices[3*f+0], ti1 = texcoordIndices[3*f+1], ti2 = texcoordIndices[3*f+2];
+
+        float p0x = positions[3*pi0], p0y = positions[3*pi0+1], p0z = positions[3*pi0+2];
+        float p1x = positions[3*pi1], p1y = positions[3*pi1+1], p1z = positions[3*pi1+2];
+        float p2x = positions[3*pi2], p2y = positions[3*pi2+1], p2z = positions[3*pi2+2];
+
+        float uv0x = texcoords[2*ti0], uv0y = texcoords[2*ti0+1];
+        float uv1x = texcoords[2*ti1], uv1y = texcoords[2*ti1+1];
+        float uv2x = texcoords[2*ti2], uv2y = texcoords[2*ti2+1];
+
+        float e1x = p1x-p0x, e1y = p1y-p0y, e1z = p1z-p0z;
+        float e2x = p2x-p0x, e2y = p2y-p0y, e2z = p2z-p0z;
+        float d1x = uv1x-uv0x, d1y = uv1y-uv0y;
+        float d2x = uv2x-uv0x, d2y = uv2y-uv0y;
+
+        float det = d1x*d2y - d2x*d1y;
+        float tx = 0.0f, ty = 0.0f, tz = 0.0f;
+        if (std::abs(det) > 1e-6f) {
+            tx = (d2y*e1x - d1y*e2x) / det;
+            ty = (d2y*e1y - d1y*e2y) / det;
+            tz = (d2y*e1z - d1y*e2z) / det;
+        }
+
+        uint32_t pis[3] = {pi0, pi1, pi2};
+        uint32_t nis[3] = {ni0, ni1, ni2};
+        uint32_t tis[3] = {ti0, ti1, ti2};
+        for (int v = 0; v < 3; v++) {
+            auto key = std::make_tuple(pis[v], nis[v], tis[v]);
+            auto [it, inserted] = tangentIndexMap.emplace(key, (uint32_t)tangentAccum.size());
+            if (inserted) tangentAccum.push_back({tx, ty, tz});
+            else { tangentAccum[it->second][0] += tx; tangentAccum[it->second][1] += ty; tangentAccum[it->second][2] += tz; }
+            tangentIndices[3*f+v] = it->second;
+        }
+    }
+
+    tangents.reserve(tangentAccum.size() * 3);
+    for (auto& t : tangentAccum) {
+        float len = std::sqrt(t[0]*t[0] + t[1]*t[1] + t[2]*t[2]);
+        if (len > 1e-6f) { t[0] /= len; t[1] /= len; t[2] /= len; }
+        else              { t[0] = 1.0f; t[1] = 0.0f; t[2] = 0.0f; }
+        tangents.push_back(t[0]); tangents.push_back(t[1]); tangents.push_back(t[2]);
     }
 
     std::cout << "Loaded model with tangents: " << positions.size() / 3 << " positions, "
@@ -322,79 +282,56 @@ inline bool loadModel(const std::string& filepath,
 // Helper function to compute tangents for a mesh
 inline void computeMeshTangents(Mesh& mesh, const tinyobj::attrib_t& attrib,
                                  const tinyobj::shape_t& shape) {
-    size_t numNormals = mesh.normals.size() / 3;
-    mesh.tangents.resize(numNormals * 3, 0.0f);
+    std::map<std::tuple<uint32_t,uint32_t,uint32_t>, uint32_t> tangentIndexMap;
+    std::vector<std::array<float,3>> tangentAccum;
 
-    size_t indexOffset = 0;
-    for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); f++) {
-        size_t fv = shape.mesh.num_face_vertices[f];
+    size_t numTriangles = mesh.positionIndices.size() / 3;
+    mesh.tangentIndices.resize(mesh.positionIndices.size());
 
-        if (fv == 3) {
-            tinyobj::index_t idx0 = shape.mesh.indices[indexOffset + 0];
-            tinyobj::index_t idx1 = shape.mesh.indices[indexOffset + 1];
-            tinyobj::index_t idx2 = shape.mesh.indices[indexOffset + 2];
+    for (size_t f = 0; f < numTriangles; f++) {
+        uint32_t pi0 = mesh.positionIndices[3*f+0], pi1 = mesh.positionIndices[3*f+1], pi2 = mesh.positionIndices[3*f+2];
+        uint32_t ni0 = mesh.normalIndices[3*f+0],   ni1 = mesh.normalIndices[3*f+1],   ni2 = mesh.normalIndices[3*f+2];
+        uint32_t ti0 = mesh.texcoordIndices[3*f+0], ti1 = mesh.texcoordIndices[3*f+1], ti2 = mesh.texcoordIndices[3*f+2];
 
-            float p0x = attrib.vertices[3 * idx0.vertex_index + 0];
-            float p0y = attrib.vertices[3 * idx0.vertex_index + 1];
-            float p0z = attrib.vertices[3 * idx0.vertex_index + 2];
+        float p0x = attrib.vertices[3*pi0], p0y = attrib.vertices[3*pi0+1], p0z = attrib.vertices[3*pi0+2];
+        float p1x = attrib.vertices[3*pi1], p1y = attrib.vertices[3*pi1+1], p1z = attrib.vertices[3*pi1+2];
+        float p2x = attrib.vertices[3*pi2], p2y = attrib.vertices[3*pi2+1], p2z = attrib.vertices[3*pi2+2];
 
-            float p1x = attrib.vertices[3 * idx1.vertex_index + 0];
-            float p1y = attrib.vertices[3 * idx1.vertex_index + 1];
-            float p1z = attrib.vertices[3 * idx1.vertex_index + 2];
+        float uv0x = attrib.texcoords[2*ti0], uv0y = attrib.texcoords[2*ti0+1];
+        float uv1x = attrib.texcoords[2*ti1], uv1y = attrib.texcoords[2*ti1+1];
+        float uv2x = attrib.texcoords[2*ti2], uv2y = attrib.texcoords[2*ti2+1];
 
-            float p2x = attrib.vertices[3 * idx2.vertex_index + 0];
-            float p2y = attrib.vertices[3 * idx2.vertex_index + 1];
-            float p2z = attrib.vertices[3 * idx2.vertex_index + 2];
+        float e1x = p1x-p0x, e1y = p1y-p0y, e1z = p1z-p0z;
+        float e2x = p2x-p0x, e2y = p2y-p0y, e2z = p2z-p0z;
+        float d1x = uv1x-uv0x, d1y = uv1y-uv0y;
+        float d2x = uv2x-uv0x, d2y = uv2y-uv0y;
 
-            float uv0x = 0.0f, uv0y = 0.0f;
-            float uv1x = 0.0f, uv1y = 0.0f;
-            float uv2x = 0.0f, uv2y = 0.0f;
-
-            if (idx0.texcoord_index >= 0) {
-                uv0x = attrib.texcoords[2 * idx0.texcoord_index + 0];
-                uv0y = attrib.texcoords[2 * idx0.texcoord_index + 1];
-            }
-            if (idx1.texcoord_index >= 0) {
-                uv1x = attrib.texcoords[2 * idx1.texcoord_index + 0];
-                uv1y = attrib.texcoords[2 * idx1.texcoord_index + 1];
-            }
-            if (idx2.texcoord_index >= 0) {
-                uv2x = attrib.texcoords[2 * idx2.texcoord_index + 0];
-                uv2y = attrib.texcoords[2 * idx2.texcoord_index + 1];
-            }
-
-            float edge1x = p1x - p0x, edge1y = p1y - p0y, edge1z = p1z - p0z;
-            float edge2x = p2x - p0x, edge2y = p2y - p0y, edge2z = p2z - p0z;
-
-            float deltaUV1x = uv1x - uv0x, deltaUV1y = uv1y - uv0y;
-            float deltaUV2x = uv2x - uv0x, deltaUV2y = uv2y - uv0y;
-
-            float denom = deltaUV1x * deltaUV2y - deltaUV2x * deltaUV1y;
-            float invDenom = (std::abs(denom) > 1e-6f) ? 1.0f / denom : 0.0f;
-
-            float tx = invDenom * (deltaUV2y * edge1x - deltaUV1y * edge2x);
-            float ty = invDenom * (deltaUV2y * edge1y - deltaUV1y * edge2y);
-            float tz = invDenom * (deltaUV2y * edge1z - deltaUV1y * edge2z);
-
-            float len = std::sqrt(tx * tx + ty * ty + tz * tz);
-            if (len > 1e-6f) {
-                tx /= len; ty /= len; tz /= len;
-            } else {
-                tx = 1.0f; ty = 0.0f; tz = 0.0f;
-            }
-
-            for (size_t v = 0; v < 3; v++) {
-                tinyobj::index_t idx = shape.mesh.indices[indexOffset + v];
-                if (idx.normal_index >= 0) {
-                    size_t ni = static_cast<size_t>(idx.normal_index);
-                    mesh.tangents[3 * ni + 0] = tx;
-                    mesh.tangents[3 * ni + 1] = ty;
-                    mesh.tangents[3 * ni + 2] = tz;
-                }
-            }
+        float det = d1x*d2y - d2x*d1y;
+        float tx = 0.0f, ty = 0.0f, tz = 0.0f;
+        if (std::abs(det) > 1e-6f) {
+            tx = (d2y*e1x - d1y*e2x) / det;
+            ty = (d2y*e1y - d1y*e2y) / det;
+            tz = (d2y*e1z - d1y*e2z) / det;
         }
 
-        indexOffset += fv;
+        uint32_t pis[3] = {pi0, pi1, pi2};
+        uint32_t nis[3] = {ni0, ni1, ni2};
+        uint32_t tis[3] = {ti0, ti1, ti2};
+        for (int v = 0; v < 3; v++) {
+            auto key = std::make_tuple(pis[v], nis[v], tis[v]);
+            auto [it, inserted] = tangentIndexMap.emplace(key, (uint32_t)tangentAccum.size());
+            if (inserted) tangentAccum.push_back({tx, ty, tz});
+            else { tangentAccum[it->second][0] += tx; tangentAccum[it->second][1] += ty; tangentAccum[it->second][2] += tz; }
+            mesh.tangentIndices[3*f+v] = it->second;
+        }
+    }
+
+    mesh.tangents.reserve(tangentAccum.size() * 3);
+    for (auto& t : tangentAccum) {
+        float len = std::sqrt(t[0]*t[0] + t[1]*t[1] + t[2]*t[2]);
+        if (len > 1e-6f) { t[0] /= len; t[1] /= len; t[2] /= len; }
+        else              { t[0] = 1.0f; t[1] = 0.0f; t[2] = 0.0f; }
+        mesh.tangents.push_back(t[0]); mesh.tangents.push_back(t[1]); mesh.tangents.push_back(t[2]);
     }
 }
 
