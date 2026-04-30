@@ -17,7 +17,6 @@
 #include <stb/stb_image.h>
 
 #include "utils/ObjLoader.hpp"
-#include "utils/MipmapHelper.hpp"
 
 std::string root = PROJECT_ROOT;
 
@@ -106,8 +105,8 @@ int main() {
 
         // ---- Chargement de la texture diffuse avec mipmaps ----
         std::string texPath = root + "models/Ch03_1001_Diffuse.png";
-        int texW, texH, texCh;
-        stbi_uc* px = stbi_load(texPath.c_str(), &texW, &texH, &texCh, STBI_rgb_alpha);
+        int texW, texH;
+        stbi_uc* px = stbi_load(texPath.c_str(), &texW, &texH, nullptr, STBI_rgb_alpha);
         if (!px) {
             std::cerr << "Erreur : impossible de charger la texture : " << texPath << std::endl;
             return 1;
@@ -115,84 +114,113 @@ int main() {
         std::vector<uint8_t> pixels(px, px + texW * texH * 4);
         stbi_image_free(px);
 
-        uint32_t mipLevels = mipLevelCount(static_cast<uint32_t>(texW),
-                                           static_cast<uint32_t>(texH));
+        uint32_t mipLevels = static_cast<uint32_t>(
+            std::floor(std::log2(std::max(texW, texH)))) + 1;
 
-        // Create image with all mip levels (no data — stays eUndefined)
-        LavaCake::Image texture(device,
+        // Upload niveau 0 via le constructeur avec donnees ; tous les niveaux
+        // passent en eShaderReadOnlyOptimal apres l'upload.
+        LavaCake::Image texture(device, pixels,
                                 static_cast<uint32_t>(texW),
                                 static_cast<uint32_t>(texH),
                                 1,
                                 vk::Format::eR8G8B8A8Srgb,
                                 vk::ImageUsageFlagBits::eSampled |
-                                vk::ImageUsageFlagBits::eTransferDst |
                                 vk::ImageUsageFlagBits::eTransferSrc,
-                                vk::AllocationCreateFlagBits::eCreateDedicatedMemory,
+                                {},
                                 mipLevels);
 
-        // Upload pixel data to mip level 0, leaving it in eTransferDstOptimal
+        // Generate mipmaps by successive blits
         {
-            LavaCake::Buffer staging(device, pixels,
-                                     vk::BufferUsageFlagBits::eTransferSrc,
-                                     vk::AllocationCreateFlagBits::eCreateHostAccessSequentialWrite);
+            LavaCake::CommandBuffer mipCmd(device.getDevice(), device.getCommandPool(), false);
+            mipCmd.begin();
 
-            LavaCake::CommandBuffer uploadCmd(device.getDevice(), device.getCommandPool(), false);
-            uploadCmd.begin();
-
-            // Transition all mip levels: eUndefined -> eTransferDstOptimal
-            vk::ImageMemoryBarrier barrierUndef{};
-            barrierUndef.image                           = texture;
-            barrierUndef.srcAccessMask                   = vk::AccessFlagBits::eNone;
-            barrierUndef.dstAccessMask                   = vk::AccessFlagBits::eTransferWrite;
-            barrierUndef.oldLayout                       = vk::ImageLayout::eUndefined;
-            barrierUndef.newLayout                       = vk::ImageLayout::eTransferDstOptimal;
-            barrierUndef.srcQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
-            barrierUndef.dstQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
-            barrierUndef.subresourceRange.aspectMask     = vk::ImageAspectFlagBits::eColor;
-            barrierUndef.subresourceRange.baseMipLevel   = 0;
-            barrierUndef.subresourceRange.levelCount     = mipLevels;
-            barrierUndef.subresourceRange.baseArrayLayer = 0;
-            barrierUndef.subresourceRange.layerCount     = 1;
-
-            uploadCmd.pipelineBarrier(
-                vk::PipelineStageFlagBits::eTopOfPipe,
+            // Retransitionner tous les niveaux : eShaderReadOnlyOptimal -> eTransferDstOptimal
+            vk::ImageMemoryBarrier barrierAll{};
+            barrierAll.image               = (vk::Image)texture;
+            barrierAll.srcAccessMask       = vk::AccessFlagBits::eShaderRead;
+            barrierAll.dstAccessMask       = vk::AccessFlagBits::eTransferWrite;
+            barrierAll.oldLayout           = vk::ImageLayout::eShaderReadOnlyOptimal;
+            barrierAll.newLayout           = vk::ImageLayout::eTransferDstOptimal;
+            barrierAll.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrierAll.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrierAll.subresourceRange    = { vk::ImageAspectFlagBits::eColor, 0, mipLevels, 0, 1 };
+            mipCmd.pipelineBarrier(
+                vk::PipelineStageFlagBits::eFragmentShader,
                 vk::PipelineStageFlagBits::eTransfer,
-                {},
-                {},
-                {},
-                { barrierUndef }
+                {}, {}, {}, { barrierAll }
             );
 
-            // Copy pixels to mip level 0
-            vk::CommandBuffer vkUpload = uploadCmd;
-            vk::BufferImageCopy region{};
-            region.bufferOffset                    = 0;
-            region.bufferRowLength                 = 0;
-            region.bufferImageHeight               = 0;
-            region.imageSubresource.aspectMask     = vk::ImageAspectFlagBits::eColor;
-            region.imageSubresource.mipLevel       = 0;
-            region.imageSubresource.baseArrayLayer = 0;
-            region.imageSubresource.layerCount     = 1;
-            region.imageOffset                     = vk::Offset3D{0, 0, 0};
-            region.imageExtent                     = vk::Extent3D{static_cast<uint32_t>(texW),
-                                                                  static_cast<uint32_t>(texH), 1};
-            vkUpload.copyBufferToImage(staging, (vk::Image)texture,
-                                       vk::ImageLayout::eTransferDstOptimal, { region });
+            for (uint32_t i = 1; i < mipLevels; i++) {
+                // Barrier niveau i-1 : eTransferDstOptimal -> eTransferSrcOptimal
+                vk::ImageMemoryBarrier barrierSrc{};
+                barrierSrc.image               = (vk::Image)texture;
+                barrierSrc.srcAccessMask       = vk::AccessFlagBits::eTransferWrite;
+                barrierSrc.dstAccessMask       = vk::AccessFlagBits::eTransferRead;
+                barrierSrc.oldLayout           = vk::ImageLayout::eTransferDstOptimal;
+                barrierSrc.newLayout           = vk::ImageLayout::eTransferSrcOptimal;
+                barrierSrc.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrierSrc.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrierSrc.subresourceRange    = { vk::ImageAspectFlagBits::eColor, i-1, 1, 0, 1 };
+                mipCmd.pipelineBarrier(
+                    vk::PipelineStageFlagBits::eTransfer,
+                    vk::PipelineStageFlagBits::eTransfer,
+                    {}, {}, {}, { barrierSrc });
 
-            uploadCmd.end();
+                // Blit niveau i-1 -> niveau i
+                int32_t srcW = (int32_t)std::max(texW >> (i-1), 1);
+                int32_t srcH = (int32_t)std::max(texH >> (i-1), 1);
+                int32_t dstW = std::max(srcW / 2, 1);
+                int32_t dstH = std::max(srcH / 2, 1);
+                vk::ImageBlit blit{};
+                blit.srcSubresource = { vk::ImageAspectFlagBits::eColor, i-1, 0, 1 };
+                blit.srcOffsets[0]  = { 0, 0, 0 };
+                blit.srcOffsets[1]  = { srcW, srcH, 1 };
+                blit.dstSubresource = { vk::ImageAspectFlagBits::eColor, i, 0, 1 };
+                blit.dstOffsets[0]  = { 0, 0, 0 };
+                blit.dstOffsets[1]  = { dstW, dstH, 1 };
+                mipCmd.blitImage(
+                    (vk::Image)texture, vk::ImageLayout::eTransferSrcOptimal,
+                    (vk::Image)texture, vk::ImageLayout::eTransferDstOptimal,
+                    { blit }, vk::Filter::eLinear);
 
-            vk::SubmitInfo submitInfo{};
-            submitInfo.commandBufferCount = 1;
-            submitInfo.pCommandBuffers    = uploadCmd;
-            device.getAnyQueue().submit(submitInfo, {});
+                // Barrier niveau i-1 : eTransferSrcOptimal -> eShaderReadOnlyOptimal
+                vk::ImageMemoryBarrier barrierShader{};
+                barrierShader.image               = (vk::Image)texture;
+                barrierShader.srcAccessMask       = vk::AccessFlagBits::eTransferRead;
+                barrierShader.dstAccessMask       = vk::AccessFlagBits::eShaderRead;
+                barrierShader.oldLayout           = vk::ImageLayout::eTransferSrcOptimal;
+                barrierShader.newLayout           = vk::ImageLayout::eShaderReadOnlyOptimal;
+                barrierShader.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrierShader.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrierShader.subresourceRange    = { vk::ImageAspectFlagBits::eColor, i-1, 1, 0, 1 };
+                mipCmd.pipelineBarrier(
+                    vk::PipelineStageFlagBits::eTransfer,
+                    vk::PipelineStageFlagBits::eFragmentShader,
+                    {}, {}, {}, { barrierShader });
+            }
+
+            // Barrier dernier niveau : eTransferDstOptimal -> eShaderReadOnlyOptimal
+            vk::ImageMemoryBarrier barrierLast{};
+            barrierLast.image               = (vk::Image)texture;
+            barrierLast.srcAccessMask       = vk::AccessFlagBits::eTransferWrite;
+            barrierLast.dstAccessMask       = vk::AccessFlagBits::eShaderRead;
+            barrierLast.oldLayout           = vk::ImageLayout::eTransferDstOptimal;
+            barrierLast.newLayout           = vk::ImageLayout::eShaderReadOnlyOptimal;
+            barrierLast.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrierLast.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrierLast.subresourceRange    = { vk::ImageAspectFlagBits::eColor, mipLevels-1, 1, 0, 1 };
+            mipCmd.pipelineBarrier(
+                vk::PipelineStageFlagBits::eTransfer,
+                vk::PipelineStageFlagBits::eFragmentShader,
+                {}, {}, {}, { barrierLast });
+
+            mipCmd.end();
+            vk::SubmitInfo si{};
+            si.commandBufferCount = 1;
+            si.pCommandBuffers    = mipCmd;
+            device.getAnyQueue().submit(si, {});
             device.getAnyQueue().waitIdle();
         }
-
-        // Generate mipmaps (transitions all levels to eShaderReadOnlyOptimal)
-        generateMipmaps((vk::Image)texture,
-                        static_cast<uint32_t>(texW),
-                        static_cast<uint32_t>(texH),
-                        mipLevels, device);
 
         LavaCake::ImageView texView(texture);
         LavaCake::Sampler   texSampler(device); // full mipmap support

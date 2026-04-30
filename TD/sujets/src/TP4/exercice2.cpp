@@ -22,49 +22,6 @@ std::string root = PROJECT_ROOT;
 
 using namespace LavaCake;
 
-// ---------------------------------------------------------------------------
-// TODO 1 : Implementer la generation de mipmaps par blits GPU successifs.
-//
-// Prototype :
-//   void generateMipmaps(vk::Image image,
-//                        uint32_t width, uint32_t height,
-//                        uint32_t mipLevels,
-//                        LavaCake::Device& device);
-//
-// Algorithme :
-//   Creer un LavaCake::CommandBuffer en mode one-shot (false = non signale).
-//   Appeler cmd.begin().
-//
-//   Pour chaque niveau i de 1 a mipLevels-1 :
-//     1. Transition du niveau (i-1) : eTransferDstOptimal -> eTransferSrcOptimal
-//        (vk::ImageMemoryBarrier sur baseMipLevel = i-1, levelCount = 1)
-//        srcAccess = eTransferWrite, dstAccess = eTransferRead
-//        Soumettre via cmd.pipelineBarrier(eTransfer, eTransfer, ...)
-//
-//     2. vkCmdBlitImage du niveau (i-1) vers le niveau (i) :
-//          srcSubresource.mipLevel = i - 1
-//          srcOffsets[1] = { max(width  >> (i-1), 1u),
-//                            max(height >> (i-1), 1u), 1 }
-//          dstSubresource.mipLevel = i
-//          dstOffsets[1] = { max(width  >> i, 1u),
-//                            max(height >> i, 1u), 1 }
-//          filter = vk::Filter::eLinear
-//        (cast cmd en vk::CommandBuffer pour appeler blitImage)
-//
-//     3. Transition du niveau (i-1) : eTransferSrcOptimal -> eShaderReadOnlyOptimal
-//        srcAccess = eTransferRead, dstAccess = eShaderRead
-//        Soumettre via cmd.pipelineBarrier(eTransfer, eFragmentShader, ...)
-//
-//   Apres la boucle :
-//     Transition du dernier niveau (mipLevels-1) :
-//       eTransferDstOptimal -> eShaderReadOnlyOptimal
-//       srcAccess = eTransferWrite, dstAccess = eShaderRead
-//       Soumettre via cmd.pipelineBarrier(eTransfer, eFragmentShader, ...)
-//
-//   Appeler cmd.end(), puis soumettre via device.getAnyQueue().submit(...)
-//   et attendre avec device.getAnyQueue().waitIdle().
-// ---------------------------------------------------------------------------
-
 int main() {
 
     glfwInit();
@@ -96,11 +53,11 @@ int main() {
         LavaCake::Buffer nrmIdxBuffer(device, normalIndices,   vk::BufferUsageFlagBits::eStorageBuffer);
         LavaCake::Buffer texIdxBuffer(device, texcoordIndices, vk::BufferUsageFlagBits::eStorageBuffer);
 
-        // ---- Chargement de la texture (fourni, repris de exo1) ----
-        int texWidth, texHeight, texChannels;
+        // ---- Chargement de la texture (fourni) ----
+        int texWidth, texHeight;
         stbi_uc* pixels = stbi_load(
             (root + "models/Ch03_1001_Diffuse.png").c_str(),
-            &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+            &texWidth, &texHeight, nullptr, STBI_rgb_alpha);
         if (!pixels) {
             std::cerr << "Erreur : impossible de charger la texture." << std::endl;
             return 1;
@@ -109,56 +66,41 @@ int main() {
         stbi_image_free(pixels);
 
         // -----------------------------------------------------------------------
-        // TODO 2 : Calculer le nombre de niveaux de mipmap, creer l'image et
-        //          uploader les donnees du niveau 0.
+        // TODO 1 : Calculer le nombre de niveaux et creer l'image.
         //
-        //   a) Calcul du nombre de niveaux :
-        //     uint32_t mipLevels =
-        //         static_cast<uint32_t>(
-        //             std::floor(std::log2(std::max(texWidth, texHeight)))) + 1;
-        //
-        //   b) Creer l'image SANS donnees (constructeur sans pixels) avec les
-        //      usages eSampled | eTransferDst | eTransferSrc et mipLevels niveaux :
-        //     LavaCake::Image diffuseTexture(device,
-        //         static_cast<uint32_t>(texWidth),
-        //         static_cast<uint32_t>(texHeight),
-        //         1,
-        //         vk::Format::eR8G8B8A8Srgb,
-        //         vk::ImageUsageFlagBits::eSampled |
-        //         vk::ImageUsageFlagBits::eTransferDst |
-        //         vk::ImageUsageFlagBits::eTransferSrc,
-        //         vk::AllocationCreateFlagBits::eCreateDedicatedMemory,
-        //         mipLevels);
-        //
-        //   c) Uploader les pixels dans le niveau 0 via un staging buffer :
-        //     - Creer un LavaCake::Buffer de staging avec les donnees pixelData
-        //       et les flags eTransferSrc + eCreateHostAccessSequentialWrite
-        //     - Creer un LavaCake::CommandBuffer uploadCmd(device.getDevice(),
-        //         device.getCommandPool(), false) et appeler uploadCmd.begin()
-        //     - Transition de TOUS les niveaux : eUndefined -> eTransferDstOptimal
-        //       (vk::ImageMemoryBarrier avec baseMipLevel=0, levelCount=mipLevels)
-        //       srcAccess = eNone, dstAccess = eTransferWrite
-        //       Soumettre via uploadCmd.pipelineBarrier(eTopOfPipe, eTransfer, ...)
-        //     - Copier les pixels vers le niveau 0 avec vkCmdCopyBufferToImage :
-        //       region.imageSubresource.mipLevel = 0
-        //       region.imageExtent = { texWidth, texHeight, 1 }
-        //       layout = eTransferDstOptimal
-        //     - uploadCmd.end(), soumettre et attendre (getAnyQueue + waitIdle)
+        //   - Calculez mipLevels avec floor(log2(max(w, h))) + 1
+        //   - Creez un LavaCake::Image avec les donnees pixelData (constructeur avec
+        //     pixels), le format eR8G8B8A8Srgb, les usages eSampled | eTransferSrc,
+        //     et mipLevels niveaux. LavaCake ajoute eTransferDst automatiquement.
+        //     Le niveau 0 est uploade et tous les niveaux passent en eShaderReadOnlyOptimal.
+        //   - Creez un LavaCake::ImageView et un LavaCake::Sampler
         // -----------------------------------------------------------------------
 
         // -----------------------------------------------------------------------
-        // TODO 3 : Appeler generateMipmaps apres avoir uploade le niveau 0.
+        // TODO 2 : Generer les niveaux de mipmap par blits GPU.
         //
-        //   generateMipmaps((vk::Image)diffuseTexture,
-        //                   static_cast<uint32_t>(texWidth),
-        //                   static_cast<uint32_t>(texHeight),
-        //                   mipLevels, device);
+        //   Le constructeur a transite tous les niveaux vers eShaderReadOnlyOptimal.
+        //   Creez un CommandBuffer (one-shot), appelez begin().
+        //
+        //   Etape 0 — Retransitionner tous les niveaux vers eTransferDstOptimal :
+        //     Barrier eShaderReadOnlyOptimal -> eTransferDstOptimal sur levelCount=mipLevels
+        //     (srcAccess=eShaderRead, dstAccess=eTransferWrite,
+        //      stages eFragmentShader -> eTransfer)
+        //
+        //   Pour chaque niveau i de 1 a mipLevels-1 :
+        //     A. Barrier niveau (i-1) : eTransferDstOptimal -> eTransferSrcOptimal
+        //        (srcAccess=eTransferWrite, dstAccess=eTransferRead,
+        //         stages eTransfer -> eTransfer)
+        //     B. Blit niveau (i-1) -> niveau (i), filtre lineaire
+        //     C. Barrier niveau (i-1) : eTransferSrcOptimal -> eShaderReadOnlyOptimal
+        //        (srcAccess=eTransferRead, dstAccess=eShaderRead,
+        //         stages eTransfer -> eFragmentShader)
+        //
+        //   Apres la boucle : barrier dernier niveau eTransferDstOptimal -> eShaderReadOnlyOptimal
+        //   Soumettez et attendez.
         // -----------------------------------------------------------------------
 
-        // LavaCake::ImageView diffuseView(diffuseTexture);
-        // LavaCake::Sampler   diffuseSampler(device);
-
-        // ---- Descriptor set layout (fourni, identique a exo1) ----
+        // ---- Descriptor set layout (fourni) ----
         LavaCake::DescriptorSetLayout layout =
             LavaCake::DescriptorSetLayout::Builder(device)
                 .addStorageBuffer(0, vk::ShaderStageFlagBits::eVertex)
@@ -199,7 +141,7 @@ int main() {
             .bindStorageBuffer(4, nrmIdxBuffer)
             .bindStorageBuffer(5, texIdxBuffer)
             .bindUniformBuffer(6, viewProjUbo)
-            // .bindImage(7, diffuseView, diffuseSampler)  // a decommenter apres TODO 1, 2 & 3
+            .bindImage(7, diffuseView, diffuseSampler)  // TODO : ajouter apres TODO 1
             .update();
 
         // ---- Image de profondeur (fournie) ----
@@ -244,8 +186,6 @@ int main() {
         uint32_t vertexCount = static_cast<uint32_t>(positionIndices.size());
 
         // ---- Boucle de rendu avec camera oscillante (fournie) ----
-        // La camera se rapproche et s'eloigne cycliquement, mettant en evidence
-        // l'aliasing sans mipmaps (scintillement de la texture).
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
             time += 0.01f;

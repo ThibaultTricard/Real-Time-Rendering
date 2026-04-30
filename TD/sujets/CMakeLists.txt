@@ -17,7 +17,7 @@ set(LAVACAKE_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     LavaCake
     GIT_REPOSITORY https://github.com/ThibaultTricard/LavaCake.git
-    GIT_TAG b9a0b4c
+    GIT_TAG dev-2.0
 )
 FetchContent_MakeAvailable(LavaCake)
 

@@ -44,28 +44,19 @@ LavaCake::Sampler diffuseSampler(device);
 
 ### Chargement d'une image avec stb_image
 
-`stb_image` est une bibliothèque en-tête unique pour charger des images PNG, JPG, etc. :
+`stb_image` est une bibliothèque en-tête unique (`/usr/include/stb/stb_image.h`) qui décode une image depuis le disque et retourne un tableau de pixels en mémoire CPU. La fonction principale est :
 
 ```cpp
-#define STB_IMAGE_IMPLEMENTATION  // a placer UNE SEULE FOIS dans un .cpp
-#include <stb/stb_image.h>        // chemin : /usr/include/stb/stb_image.h
-
-int texWidth, texHeight, texChannels;
-
-// STBI_rgb_alpha force 4 canaux (RGBA) quelle que soit l'image source
-stbi_uc* pixels = stbi_load(
-    (root + "models/Ch03_1001_Diffuse.png").c_str(),
-    &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-
-if (!pixels) {
-    std::cerr << "Erreur de chargement" << std::endl;
-    return 1;
-}
-
-// Copier dans un vecteur (stbi_uc = uint8_t)
-std::vector<uint8_t> pixelData(pixels, pixels + texWidth * texHeight * 4);
-stbi_image_free(pixels);  // liberer la memoire stb
+stbi_uc* stbi_load(const char* filename,
+                   int* width,             // rempli par stb avec la largeur de l'image
+                   int* height,            // rempli par stb avec la hauteur de l'image
+                   int* channels_in_file,  // canaux originaux de l'image ; nullptr si inutile
+                   int desired_channels);  // canaux forces en sortie (ex. STBI_rgb_alpha = 4)
 ```
+
+`width` et `height` sont des paramètres de sortie : on passe l'adresse de variables locales, et stb les remplit avec les dimensions de l'image. La fonction retourne `nullptr` en cas d'échec. Les pixels renvoyés sont alloués par stb et doivent être libérés avec `stbi_image_free(pixels)` après usage. `stbi_uc` est un alias de `uint8_t`.
+
+> **`STBI_rgb_alpha`** force la sortie à 4 canaux (RGBA) quelle que soit l'image source. Comme on impose le format, le paramètre `channels_in_file` ne nous est pas utile : on passe `nullptr`.
 
 ---
 
@@ -120,13 +111,68 @@ Pour une image 1024×1024 : 11 niveaux (1024, 512, 256, ..., 2, 1).
 
 #### Génération des mipmaps par blits
 
-Vulkan ne génère pas les mipmaps automatiquement. Il faut les générer par une suite de `vkCmdBlitImage`, chaque niveau étant réduit à partir du niveau précédent :
+Vulkan ne génère pas les mipmaps automatiquement. Il faut les générer par une suite de blits, chaque niveau étant réduit à partir du niveau précédent :
 
 ```
 Niveau 0 (1024×1024) -blit-> Niveau 1 (512×512) -blit-> Niveau 2 (256×256) -blit-> ...
 ```
 
-Pour chaque blit, des barrières mémoire (`vk::ImageMemoryBarrier`) sont nécessaires pour transitionner le layout de chaque niveau au moment opportun.
+Pour chaque blit, des **barrières mémoire** (`vk::ImageMemoryBarrier`) sont nécessaires pour transitionner le layout de chaque niveau au bon moment.
+
+#### Spec : vk::ImageMemoryBarrier et pipelineBarrier
+
+```cpp
+vk::ImageMemoryBarrier barrier{};
+barrier.image               = /* vk::Image cible */;
+barrier.oldLayout           = /* layout actuel */;
+barrier.newLayout           = /* layout souhaité */;
+barrier.srcAccessMask       = /* acces a attendre avant la barriere */;
+barrier.dstAccessMask       = /* acces autorises apres la barriere */;
+barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED; // pas de transfert de propriete
+barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+barrier.subresourceRange    = {
+    vk::ImageAspectFlagBits::eColor,
+    baseMipLevel,  // premier niveau concerné
+    levelCount,    // nombre de niveaux
+    0, 1           // baseArrayLayer, layerCount
+};
+```
+
+Envoi via :
+
+```cpp
+cmd.pipelineBarrier(
+    srcStageMask,  // étape productrice (ex. eTransfer, eTopOfPipe)
+    dstStageMask,  // étape consommatrice (ex. eTransfer, eFragmentShader)
+    {},            // dependencyFlags
+    {},            // memory barriers (non utilisé ici)
+    {},            // buffer barriers (non utilisé ici)
+    { barrier }    // image barriers
+);
+```
+
+#### Spec : vk::ImageBlit et blitImage
+
+```cpp
+vk::ImageBlit blit{};
+blit.srcSubresource = { vk::ImageAspectFlagBits::eColor, srcMipLevel, 0, 1 };
+blit.srcOffsets[0]  = { 0, 0, 0 };
+blit.srcOffsets[1]  = { srcWidth, srcHeight, 1 }; // coin bas-droit de la region source
+blit.dstSubresource = { vk::ImageAspectFlagBits::eColor, dstMipLevel, 0, 1 };
+blit.dstOffsets[0]  = { 0, 0, 0 };
+blit.dstOffsets[1]  = { dstWidth, dstHeight, 1 };
+```
+
+Envoi via :
+
+```cpp
+cmd.blitImage(
+    srcImage, srcLayout,
+    dstImage, dstLayout,
+    { blit },
+    vk::Filter::eLinear  // ou eNearest
+);
+```
 
 ---
 
@@ -215,26 +261,33 @@ La caméra oscillante fournie dans le squelette met en évidence l'aliasing : sa
 
 ### Étapes
 
-**TODO 1 — Implémenter `generateMipmaps`**
+**TODO 1 — Créer l'image et uploader le niveau 0**
 
-Écrivez la fonction (déclarée en tête de fichier) qui génère tous les niveaux de mipmap par blits successifs. Pour chaque niveau `i` :
-1. Transition du niveau `i-1` : `eTransferDstOptimal` → `eTransferSrcOptimal`
-2. `vkCmdBlitImage` du niveau `i-1` vers le niveau `i` (filtre linéaire, dimensions divisées par 2)
-3. Transition du niveau `i-1` : `eTransferSrcOptimal` → `eShaderReadOnlyOptimal`
+Calculez `mipLevels` avec la formule `floor(log2(max(w, h))) + 1`. Créez un `LavaCake::Image` avec le constructeur (`pixelData`), le format `eR8G8B8A8Srgb`, les usages `eSampled | eTransferSrc`, et `mipLevels` niveaux. LavaCake ajoute `eTransferDst` automatiquement, uploade le niveau 0 et transite tous les niveaux vers `eShaderReadOnlyOptimal`. Créez ensuite `ImageView` et `Sampler`.
 
-Après la boucle, transitionner le dernier niveau vers `eShaderReadOnlyOptimal`.
+**TODO 2 — Générer les niveaux de mipmap par blits**
 
-> **Astuce :** utilisez un `LavaCake::CommandBuffer` en mode one-shot pour enregistrer et soumettre toutes ces commandes.
+Créez un `LavaCake::CommandBuffer` (mode one-shot). Écrivez :
 
-**TODO 2 — Créer l'image avec le bon nombre de niveaux**
+**Étape 0** — Retransitionner tous les niveaux vers `eTransferDstOptimal` :  
+Une seule barrier `eShaderReadOnlyOptimal` → `eTransferDstOptimal` avec `levelCount = mipLevels`  
+(`srcAccess=eShaderRead`, `dstAccess=eTransferWrite`, stages `eFragmentShader → eTransfer`)
 
-Calculez `mipLevels` avec la formule `floor(log2(max(w, h))) + 1`. Créez l'image sans données (constructeur sans pixels) avec les usages `eSampled | eTransferDst | eTransferSrc` et le paramètre `mipLevels`. Uploadez manuellement le niveau 0.
+Puis pour chaque niveau `i` de 1 à `mipLevels-1` :
 
-**TODO 3 — Appeler `generateMipmaps`**
+1. **Barrier** niveau `i-1` : `eTransferDstOptimal` → `eTransferSrcOptimal`  
+   (`srcAccess=eTransferWrite`, `dstAccess=eTransferRead`, stages `eTransfer → eTransfer`)
 
-Appelez la fonction après l'upload du niveau 0, avant de créer `ImageView` et `Sampler`.
+2. **Blit** du niveau `i-1` vers le niveau `i` avec filtre linéaire  
+   (`srcOffsets[1] = { max(w >> (i-1), 1), max(h >> (i-1), 1), 1 }`,  
+    `dstOffsets[1] = { max(w >> i, 1), max(h >> i, 1), 1 }`)
 
-**TODO 4 — Shader : remplacer `texture` par `textureGrad`**
+3. **Barrier** niveau `i-1` : `eTransferSrcOptimal` → `eShaderReadOnlyOptimal`  
+   (`srcAccess=eTransferRead`, `dstAccess=eShaderRead`, stages `eTransfer → eFragmentShader`)
+
+Après la boucle, transitionner le dernier niveau `mipLevels-1` : `eTransferDstOptimal` → `eShaderReadOnlyOptimal`. Soumettre et attendre avec `device.getAnyQueue()`.
+
+**TODO 3 — Shader : remplacer `texture` par `textureGrad`**
 
 Dans `shaders/TP4/obj_mip.frag`, calculez `dFdx(uv)` et `dFdy(uv)`, puis utilisez `textureGrad(diffuseTexture, uv, duvdx, duvdy)`. Observez la réduction du scintillement.
 

@@ -17,7 +17,7 @@ set(LAVACAKE_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     LavaCake
     GIT_REPOSITORY https://github.com/ThibaultTricard/LavaCake.git
-    GIT_TAG b9a0b4c
+    GIT_TAG dev-2.0
 )
 FetchContent_MakeAvailable(LavaCake)
 
@@ -83,8 +83,3 @@ add_executable(TP5_exercice2 "src/TP5/exercice2.cpp")
 target_link_libraries(TP5_exercice2 PRIVATE LavaCake::LavaCake glfw glm::glm tinyobjloader)
 target_include_directories(TP5_exercice2 PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(TP5_exercice2 PRIVATE PROJECT_ROOT="${CMAKE_SOURCE_DIR}/")
-
-add_executable(TP5_exercice3 "src/TP5/exercice3.cpp")
-target_link_libraries(TP5_exercice3 PRIVATE LavaCake::LavaCake glfw glm::glm tinyobjloader)
-target_include_directories(TP5_exercice3 PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_compile_definitions(TP5_exercice3 PRIVATE PROJECT_ROOT="${CMAKE_SOURCE_DIR}/")

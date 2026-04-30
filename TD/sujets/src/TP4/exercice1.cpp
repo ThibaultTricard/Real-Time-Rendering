@@ -53,93 +53,37 @@ int main() {
         LavaCake::Buffer texIdxBuffer(device, texcoordIndices, vk::BufferUsageFlagBits::eStorageBuffer);
 
         // -----------------------------------------------------------------------
-        // TODO 1 : Charger la texture diffuse avec stb_image
-        //          et creer les objets LavaCake correspondants.
+        // TODO 1 : Charger la texture diffuse avec stb_image et creer les
+        //          objets LavaCake correspondants (Image, ImageView, Sampler).
         //
-        //   Etape A — Charger le fichier image :
-        //     int texWidth, texHeight, texChannels;
-        //     stbi_uc* pixels = stbi_load(
-        //         (root + "models/Ch03_1001_Diffuse.png").c_str(),
-        //         &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-        //     if (!pixels) {
-        //         std::cerr << "Erreur : impossible de charger la texture." << std::endl;
-        //         return 1;
-        //     }
-        //
-        //   Etape B — Copier les pixels dans un std::vector<uint8_t> :
-        //     std::vector<uint8_t> pixelData(pixels,
-        //         pixels + texWidth * texHeight * 4);
-        //     stbi_image_free(pixels);
-        //
-        //   Etape C — Creer l'Image LavaCake :
-        //     LavaCake::Image diffuseTexture(device, pixelData,
-        //         texWidth, texHeight, 1,
-        //         vk::Format::eR8G8B8A8Srgb,
-        //         vk::ImageUsageFlagBits::eSampled);
-        //     // Le constructeur uploade automatiquement les pixels sur le GPU
-        //     // et effectue la transition vers eShaderReadOnlyOptimal.
-        //
-        //   Etape D — Creer l'ImageView et le Sampler :
-        //     LavaCake::ImageView diffuseView(diffuseTexture);
-        //     LavaCake::Sampler   diffuseSampler(device);
+        //   - Charger "models/Ch03_1001_Diffuse.png" avec stbi_load (STBI_rgb_alpha)
+        //   - Copier les pixels dans un std::vector<uint8_t>, liberer avec stbi_image_free
+        //   - Creer un LavaCake::Image au format eR8G8B8A8Srgb avec usage eSampled
+        //     (le constructeur uploade et transite vers eShaderReadOnlyOptimal)
+        //   - Creer un LavaCake::ImageView et un LavaCake::Sampler par defaut
         // -----------------------------------------------------------------------
 
         // -----------------------------------------------------------------------
-        // TODO 2 : Creer le DescriptorSetLayout.
-        //
-        //   LavaCake::DescriptorSetLayout layout =
-        //       LavaCake::DescriptorSetLayout::Builder(device)
-        //           .addStorageBuffer(0, vk::ShaderStageFlagBits::eVertex)   // positions
-        //           .addStorageBuffer(1, vk::ShaderStageFlagBits::eVertex)   // normals
-        //           .addStorageBuffer(2, vk::ShaderStageFlagBits::eVertex)   // texcoords
-        //           .addStorageBuffer(3, vk::ShaderStageFlagBits::eVertex)   // posIndices
-        //           .addStorageBuffer(4, vk::ShaderStageFlagBits::eVertex)   // nrmIndices
-        //           .addStorageBuffer(5, vk::ShaderStageFlagBits::eVertex)   // texIndices
-        //           .addUniformBuffer(6, vk::ShaderStageFlagBits::eVertex)   // viewProj
-        //           .addCombinedImageSampler(7, vk::ShaderStageFlagBits::eFragment) // texture diffuse
-        //           .build();
+        // TODO 2 : Creer le DescriptorSetLayout avec 8 bindings :
+        //   bindings 0-5 : storage buffers (vertex) — positions, normals, texcoords,
+        //                  posIndices, nrmIndices, texIndices
+        //   binding 6    : uniform buffer (vertex) — viewProj
+        //   binding 7    : combined image sampler (fragment) — texture diffuse
         // -----------------------------------------------------------------------
 
         // -----------------------------------------------------------------------
-        // TODO 3 : Creer l'UniformBuffer pour viewProj (view * projection).
+        // TODO 3 : Creer l'UniformBuffer viewProj.
         //
-        //   glm::mat4 view = glm::lookAt(
-        //       glm::vec3(0.0f, 2.0f, 4.0f),
-        //       glm::vec3(0.0f, 0.0f, 0.0f),
-        //       glm::vec3(0.0f, 1.0f, 0.0f));
-        //   glm::mat4 proj = glm::perspective(
-        //       glm::radians(45.0f), 800.0f / 600.0f, 0.1f, 100.0f);
-        //   proj[1][1] *= -1.0f;  // correction axe Y Vulkan
-        //   glm::mat4 viewProj = proj * view;
-        //
-        //   LavaCake::UniformBuffer viewProjUbo(device);
-        //   viewProjUbo.addVariable("viewProj", viewProj);
-        //   viewProjUbo.end();
+        //   Calculez view (camera fixe) et proj (perspective 45 deg, ratio 800/600,
+        //   near=0.1, far=100 ; n'oubliez pas de corriger proj[1][1] pour Vulkan).
+        //   Creez un LavaCake::UniformBuffer, ajoutez la variable "viewProj", appelez end().
         // -----------------------------------------------------------------------
 
         // -----------------------------------------------------------------------
         // TODO 4 : Creer le DescriptorPool, allouer et mettre a jour le descriptor set.
         //
-        //   LavaCake::DescriptorPool pool =
-        //       LavaCake::DescriptorPool::Builder(device.getDevice())
-        //           .addStorageBuffers(6)           // 6 storage buffers (bindings 0-5)
-        //           .addUniformBuffers(1)           // 1 uniform buffer  (binding 6)
-        //           .addCombinedImageSamplers(1)    // 1 sampler         (binding 7)
-        //           .setMaxSets(1)
-        //           .build();
-        //
-        //   vk::DescriptorSet descriptorSet = pool.allocate(layout);
-        //
-        //   LavaCake::DescriptorSetUpdater(device, descriptorSet)
-        //       .bindStorageBuffer(0, posBuffer)
-        //       .bindStorageBuffer(1, nrmBuffer)
-        //       .bindStorageBuffer(2, texBuffer)
-        //       .bindStorageBuffer(3, posIdxBuffer)
-        //       .bindStorageBuffer(4, nrmIdxBuffer)
-        //       .bindStorageBuffer(5, texIdxBuffer)
-        //       .bindUniformBuffer(6, viewProjUbo)
-        //       .bindImage(7, diffuseView, diffuseSampler)
-        //       .update();
+        //   Pool : 6 storage buffers, 1 uniform buffer, 1 combined image sampler.
+        //   Updater : bindez les 6 buffers (0-5), l'UBO (6) et la texture (7).
         // -----------------------------------------------------------------------
 
         // ---- Image de profondeur (fournie) ----
@@ -153,8 +97,6 @@ int main() {
             vk::ImageAspectFlagBits::eDepth);
 
         // ---- Pipeline (fourni) ----
-        // Utilise les shaders shaders/TP4/obj_tex.vert et shaders/TP4/obj_tex.frag
-        // Le pipeline attend : binding 7 = combined image sampler, push constant = mat4 model
         LavaCake::GraphicsPipeline pipeline =
             LavaCake::GraphicsPipeline::Builder(device)
                 .addShaderFromFile(root + "shaders/TP4/obj_tex.vert",
@@ -201,40 +143,15 @@ int main() {
             // -------------------------------------------------------------------
             // TODO 5 : Completer la boucle de rendu.
             //
-            //   Etape A — Calculer la matrice model animee :
-            //     glm::mat4 model = glm::rotate(glm::mat4(1.0f), time,
-            //                                   glm::vec3(0.0f, 1.0f, 0.0f));
-            //
-            //   Etape B — Uploader l'UBO (viewProj ne change pas, mais doit etre
-            //              envoye au GPU au moins une fois) :
-            //     viewProjUbo.update(cmdBuffer);
-            //
-            //   Etape C — Preparer le swapchain et creer le contexte de rendu :
-            //     swapchainImage.prepareForAttachementBarrier(cmdBuffer);
-            //     LavaCake::DynamicRenderingContext renderingContext =
-            //         LavaCake::DynamicRenderingContext::Builder()
-            //             .setRenderArea(device.getSwapchainExtent())
-            //             .addColorAttachment(swapchainImage,
-            //                 vk::ClearColorValue(std::array<float,4>{0.1f,0.1f,0.1f,1.0f}))
-            //             .setDepthAttachment(depthView, 1.0f)
-            //             .begin(cmdBuffer);
-            //
-            //   Etape D — Binder et dessiner :
-            //     renderingContext.setDefaultViewportScissor(cmdBuffer);
-            //     pipeline.bind(cmdBuffer);
-            //     pipeline.bindDescriptorSets(cmdBuffer, {descriptorSet});
-            //     pipeline.pushConstants(cmdBuffer,
-            //         vk::ShaderStageFlagBits::eVertex, 0, model);
-            //     pipeline.draw(cmdBuffer, vertexCount);
-            //
-            //   Etape E — Terminer le contexte et le command buffer :
-            //     renderingContext.end(cmdBuffer);
-            //     swapchainImage.prepareForPresentBarrier(cmdBuffer);
-            //     cmdBuffer.end();
+            //   - Calculer la matrice model animee (rotation autour de Y avec time)
+            //   - Uploader l'UBO : viewProjUbo.update(cmdBuffer)
+            //   - Preparer le swapchain, creer le DynamicRenderingContext
+            //     (color attachment + depth attachment, clear gris 0.1)
+            //   - Binder le pipeline et le descriptor set, pousser model en push constant
+            //   - Dessiner vertexCount sommets
+            //   - Terminer le contexte, preparer le swapchain pour la presentation,
+            //     terminer le command buffer
             // -------------------------------------------------------------------
-
-            // swapchainImage.prepareForPresentBarrier(cmdBuffer);
-            // cmdBuffer.end();
 
             vk::PipelineStageFlags waitStage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
             vk::SubmitInfo submitInfo;
